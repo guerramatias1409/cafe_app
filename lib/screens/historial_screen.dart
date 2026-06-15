@@ -619,13 +619,14 @@ class _ItemRow extends StatelessWidget {
                 item.comboNombre +
                     (item.cafesAdicionales > 0
                         ? ' +${item.cafesAdicionales} café${item.cafesAdicionales > 1 ? 's' : ''}'
-                        : ''),
+                        : '') +
+                    (item.cantidad > 1 ? ' ×${item.cantidad}' : ''),
                 style: const TextStyle(
                     fontSize: 13, color: AppTheme.brownDark),
               ),
             ),
             Text(
-              _moneda.format(item.precioUnitario),
+              _moneda.format(item.precioTotal),
               style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
