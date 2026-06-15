@@ -81,6 +81,8 @@ class _ShellState extends State<_Shell> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
 
+    if (state.isLoading) return const _LoadingScreen();
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -128,5 +130,50 @@ class _ShellState extends State<_Shell> {
     if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(1)}M';
     if (value >= 1000) return '${(value / 1000).toStringAsFixed(0)}k';
     return '$value';
+  }
+}
+
+// ── Pantalla de carga inicial ─────────────────────────────────────────────────
+
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppTheme.brownDark,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '☕',
+              style: TextStyle(fontSize: 56),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Café al Paso',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Colors.white.withAlpha(180),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

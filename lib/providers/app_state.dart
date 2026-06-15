@@ -28,6 +28,9 @@ class AppState extends ChangeNotifier {
   // ── Firestore
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  // ── Estado de carga inicial
+  bool isLoading = true;
+
   // ── Legacy SharedPreferences keys (solo para migración)
   static const _kStock          = 'stock_v3';
   static const _kVentas         = 'ventas_v2';
@@ -78,6 +81,7 @@ class AppState extends ChangeNotifier {
       debugPrint('AppState Firestore error, usando SharedPreferences: $e');
       await _loadFromSharedPrefs();
     }
+    isLoading = false;
     notifyListeners();
   }
 
