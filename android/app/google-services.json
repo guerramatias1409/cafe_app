@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1081252102400",
+    "project_id": "cafe-admin-app-6ac78",
+    "storage_bucket": "cafe-admin-app-6ac78.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1081252102400:android:ea890662eb38623c85b3e5",
+        "android_client_info": {
+          "package_name": "com.cafealpaso.cafe_app_admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCkVfXl-FILpJlnLGDvaqCbYqqgjT4oyFk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
