@@ -118,7 +118,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
 
 // ── Lista agrupada por día ────────────────────────────────────────────────────
 
-class _VentasList extends StatelessWidget {
+class _VentasList extends StatefulWidget {
   final List<Venta> ventas;
   final AppState state;
   final ValueChanged<Venta> onEliminar;
@@ -126,135 +126,218 @@ class _VentasList extends StatelessWidget {
   const _VentasList(
       {required this.ventas, required this.state, required this.onEliminar});
 
+  @override
+  State<_VentasList> createState() => _VentasListState();
+}
+
+class _VentasListState extends State<_VentasList> {
+  late Set<String> _expandidos;
+
+  String _dayKey(DateTime ts) =>
+      '${ts.year}-${ts.month.toString().padLeft(2, '0')}-${ts.day.toString().padLeft(2, '0')}';
+
   String _labelDia(DateTime ts, DateTime hoy) {
     final mismoAnio = ts.year == hoy.year;
     final esHoy = ts.year == hoy.year && ts.month == hoy.month && ts.day == hoy.day;
     if (esHoy) return 'Hoy';
-    if (mismoAnio) return DateFormat('dd/MM').format(ts);
-    return DateFormat('dd/MM/yyyy').format(ts);
+    String label = mismoAnio
+        ? DateFormat('EEEE dd/MM', 'es').format(ts)
+        : DateFormat('dd/MM/yyyy').format(ts);
+    return label[0].toUpperCase() + label.substring(1);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final hoy = DateTime.now();
+    _expandidos = {_dayKey(hoy)};
   }
 
   @override
   Widget build(BuildContext context) {
     final hoy = DateTime.now();
 
-    // Ordenar de más reciente a más antigua
-    final sorted = [...ventas]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final sorted = [...widget.ventas]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
-    // Agrupar por día (yyyy-MM-dd)
+    // Agrupar por día
     final grupos = <String, List<Venta>>{};
     for (final v in sorted) {
-      final key =
-          '${v.timestamp.year}-${v.timestamp.month}-${v.timestamp.day}';
-      grupos.putIfAbsent(key, () => []).add(v);
+      grupos.putIfAbsent(_dayKey(v.timestamp), () => []).add(v);
     }
 
-    // Construir lista plana: header + ventas del día
-    final items = <Object>[];
-    for (final entry in grupos.entries) {
-      final diaVentas = entry.value;
-      final label = _labelDia(diaVentas.first.timestamp, hoy);
-      final totalDia = diaVentas.fold(0, (s, v) => s + v.precioTotal + v.propina);
-      final porMedio = <MedioPago, int>{};
-      for (final v in diaVentas) {
-        porMedio[v.medioPago] = (porMedio[v.medioPago] ?? 0) + v.precioTotal;
-        if (v.propina > 0 && v.propinaMedioPago != null) {
-          porMedio[v.propinaMedioPago!] =
-              (porMedio[v.propinaMedioPago!] ?? 0) + v.propina;
-        }
-      }
-      items.add(_DiaHeader(label: label, total: totalDia, porMedio: porMedio));
-      items.addAll(diaVentas);
-    }
+    // Construir lista: un ítem por día (header + ventas colapsables)
+    final dias = grupos.entries.toList();
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: items.length,
+      itemCount: dias.length,
       itemBuilder: (context, index) {
-        final item = items[index];
-        if (item is _DiaHeader) {
-          return _DiaHeaderWidget(header: item);
+        final entry = dias[index];
+        final key = entry.key;
+        final diaVentas = entry.value;
+        final expanded = _expandidos.contains(key);
+
+        final label = _labelDia(diaVentas.first.timestamp, hoy);
+        final totalDia = diaVentas.fold(0, (s, v) => s + v.precioTotal + v.propina);
+        final porMedio = <MedioPago, int>{};
+        for (final v in diaVentas) {
+          porMedio[v.medioPago] = (porMedio[v.medioPago] ?? 0) + v.precioTotal;
+          if (v.propina > 0 && v.propinaMedioPago != null) {
+            porMedio[v.propinaMedioPago!] =
+                (porMedio[v.propinaMedioPago!] ?? 0) + v.propina;
+          }
         }
-        final v = item as Venta;
-        return _VentaCard(v: v, state: state, onEliminar: () => onEliminar(v));
+
+        return Container(
+          margin: EdgeInsets.only(top: index > 0 ? 12 : 0, bottom: 0),
+          decoration: BoxDecoration(
+            color: AppTheme.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.caramel.withOpacity(0.35)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _DiaHeaderWidget(
+                label: label,
+                total: totalDia,
+                porMedio: porMedio,
+                cantVentas: diaVentas.length,
+                expanded: expanded,
+                onTap: () => setState(() {
+                  if (expanded) {
+                    _expandidos.remove(key);
+                  } else {
+                    _expandidos.add(key);
+                  }
+                }),
+              ),
+              if (expanded) ...[
+                const Divider(height: 1, color: AppTheme.grey300),
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    children: diaVentas.asMap().entries.map((e) => _VentaCard(
+                          v: e.value,
+                          state: widget.state,
+                          onEliminar: () => widget.onEliminar(e.value),
+                          isLast: e.key == diaVentas.length - 1,
+                        )).toList(),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
       },
     );
   }
 }
 
-class _DiaHeader {
+class _DiaHeaderWidget extends StatelessWidget {
   final String label;
   final int total;
   final Map<MedioPago, int> porMedio;
-  const _DiaHeader({required this.label, required this.total, required this.porMedio});
-}
+  final int cantVentas;
+  final bool expanded;
+  final VoidCallback onTap;
 
-class _DiaHeaderWidget extends StatelessWidget {
-  final _DiaHeader header;
-  const _DiaHeaderWidget({required this.header});
+  const _DiaHeaderWidget({
+    required this.label,
+    required this.total,
+    required this.porMedio,
+    required this.cantVentas,
+    required this.expanded,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final mediosActivos = MedioPago.values
-        .where((m) => (header.porMedio[m] ?? 0) > 0)
+        .where((m) => (porMedio[m] ?? 0) > 0)
         .toList();
 
-    return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Fila: fecha | línea | total
-          Row(
-            children: [
-              Text(
-                header.label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.caramel,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Expanded(child: Divider(color: AppTheme.grey300, height: 1)),
-              const SizedBox(width: 8),
-              Text(
-                _moneda.format(header.total),
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.brownDark,
-                ),
-              ),
-            ],
-          ),
-          // Fila: desglose por medio de pago
-          if (mediosActivos.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: mediosActivos.map((m) => Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.cream,
+          borderRadius: expanded
+              ? const BorderRadius.vertical(top: Radius.circular(11))
+              : BorderRadius.circular(11),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Text(m.emoji, style: const TextStyle(fontSize: 11)),
-                      const SizedBox(width: 3),
                       Text(
-                        _moneda.format(header.porMedio[m]),
+                        label,
                         style: const TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.grey600,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.brownDark,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$cantVentas venta${cantVentas != 1 ? 's' : ''}',
+                        style: const TextStyle(fontSize: 11, color: AppTheme.grey600),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      if (mediosActivos.isNotEmpty) ...[
+                        ...mediosActivos.map((m) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(m.emoji, style: const TextStyle(fontSize: 11)),
+                              const SizedBox(width: 3),
+                              Text(
+                                _moneda.format(porMedio[m]),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppTheme.grey600,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                      ],
+                      const Spacer(),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 10),
+                        child: Text(
+                          _moneda.format(total),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.caramel,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                )).toList(),
+                ],
               ),
             ),
-        ],
+            AnimatedRotation(
+              turns: expanded ? 0.5 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: const Icon(Icons.keyboard_arrow_down,
+                  size: 20, color: AppTheme.grey600),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -398,8 +481,9 @@ class _VentaCard extends StatefulWidget {
   final Venta v;
   final VoidCallback onEliminar;
   final AppState state;
+  final bool isLast;
 
-  const _VentaCard({required this.v, required this.onEliminar, required this.state});
+  const _VentaCard({required this.v, required this.onEliminar, required this.state, this.isLast = false});
 
   @override
   State<_VentaCard> createState() => _VentaCardState();
@@ -415,10 +499,10 @@ class _VentaCardState extends State<_VentaCard> {
     final tieneMultiples = v.items.length > 1;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.only(bottom: widget.isLast ? 0 : 8),
       decoration: BoxDecoration(
         color: AppTheme.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppTheme.grey300),
       ),
       child: Column(
