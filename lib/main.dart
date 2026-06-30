@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'providers/app_state.dart';
 import 'screens/ventas_screen.dart';
 import 'screens/stock_screen.dart';
@@ -13,7 +14,7 @@ import 'theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   // Lock to landscape for tablet use
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
