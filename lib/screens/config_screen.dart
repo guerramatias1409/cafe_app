@@ -20,6 +20,12 @@ class ConfigScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Insumos ────────────────────────────────────────────────────────
+          const SectionHeader('Insumos'),
+          const SizedBox(height: 8),
+          _InsumosList(state: state),
+          const SizedBox(height: 32),
+
           // ── Productos del menú ──────────────────────────────────────────────
           const SectionHeader('Productos del menú'),
           _ProductosList(state: state),
@@ -200,10 +206,15 @@ class _ProductosList extends StatelessWidget {
                               ],
                             ],
                           ),
-                          Text(fmt.format(p.precio),
-                              style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.grey600)),
+                          Row(
+                            children: [
+                              Text(fmt.format(p.precio),
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppTheme.grey600)),
+                              _MargenChip(producto: p, state: state),
+                            ],
+                          ),
                         ],
                       ),
                     ),
@@ -281,7 +292,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
   late final TextEditingController _precioCtrl;
   late CategoriaProducto _categoria;
   TamanoBebida? _tamano;
-  late List<MapEntry<Insumo, int>> _insumos;
+  late List<MapEntry<String, int>> _insumos; // insumoId → qty
   late List<MapEntry<String, int>> _productosC;
 
   @override
@@ -472,24 +483,35 @@ class _ProductoDialogState extends State<_ProductoDialog> {
               const Text('Insumos',
                   style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
               const SizedBox(height: 8),
-              ..._insumos.asMap().entries.map((e) {
-                final idx = e.key;
-                return _InsumoRow(
-                  insumo: e.value.key,
-                  qty: e.value.value,
-                  onInsumoChanged: (v) => setState(
-                      () => _insumos[idx] = MapEntry(v, _insumos[idx].value)),
-                  onQtyChanged: (v) => setState(
-                      () => _insumos[idx] = MapEntry(_insumos[idx].key, v)),
-                  onRemove: () => setState(() => _insumos.removeAt(idx)),
+              Builder(builder: (ctx) {
+                final state = Provider.of<AppState>(ctx, listen: false);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ..._insumos.asMap().entries.map((e) {
+                      final idx = e.key;
+                      return _InsumoRow(
+                        insumoId: e.value.key,
+                        qty: e.value.value,
+                        allInsumos: state.insumos,
+                        onInsumoChanged: (v) => setState(
+                            () => _insumos[idx] = MapEntry(v, _insumos[idx].value)),
+                        onQtyChanged: (v) => setState(
+                            () => _insumos[idx] = MapEntry(_insumos[idx].key, v)),
+                        onRemove: () => setState(() => _insumos.removeAt(idx)),
+                      );
+                    }),
+                    TextButton.icon(
+                      onPressed: () {
+                        if (state.insumos.isEmpty) return;
+                        setState(() => _insumos.add(MapEntry(state.insumos.first.id, 1)));
+                      },
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Agregar insumo'),
+                    ),
+                  ],
                 );
               }),
-              TextButton.icon(
-                onPressed: () => setState(
-                    () => _insumos.add(MapEntry(Insumo.values.first, 1))),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Agregar insumo'),
-              ),
               if (productosDisponibles.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 const Text('Productos',
@@ -572,7 +594,7 @@ class _CombosList extends StatelessWidget {
           final i = e.key;
           final combo = e.value;
           final isLast = i == state.combos.length - 1;
-          final resumen = _resumenInsumos(combo);
+          final resumen = _resumenInsumos(combo, state);
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -621,9 +643,13 @@ class _CombosList extends StatelessWidget {
     );
   }
 
-  String _resumenInsumos(Combo combo) {
+  String _resumenInsumos(Combo combo, AppState state) {
     final partes = <String>[];
-    combo.insumos.forEach((i, qty) => partes.add('${qty}× ${i.label}'));
+    combo.insumos.forEach((id, qty) {
+      final nombre = state.insumos.firstWhere((i) => i.id == id,
+          orElse: () => InsumoModel(id: id, nombre: id)).nombre;
+      partes.add('${qty}× $nombre');
+    });
     combo.productosConsumidos.forEach((_, qty) => partes.add('$qty× prod.'));
     return partes.join(', ');
   }
@@ -675,8 +701,8 @@ class _ComboDialogState extends State<_ComboDialog> {
   late final TextEditingController _nombreCtrl;
   late final TextEditingController _precioCtrl;
 
-  // Lista editable de insumos: (Insumo, qty)
-  late List<MapEntry<Insumo, int>> _insumos;
+  // Lista editable de insumos: (insumoId, qty)
+  late List<MapEntry<String, int>> _insumos;
   // Lista editable de productos consumidos: (productoId, qty)
   late List<MapEntry<String, int>> _productosC;
 
@@ -766,26 +792,35 @@ class _ComboDialogState extends State<_ComboDialog> {
             const Text('Insumos',
                 style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
             const SizedBox(height: 8),
-            ..._insumos.asMap().entries.map((e) {
-              final idx = e.key;
-              final insumo = e.value.key;
-              final qty = e.value.value;
-              return _InsumoRow(
-                insumo: insumo,
-                qty: qty,
-                onInsumoChanged: (v) => setState(
-                    () => _insumos[idx] = MapEntry(v, _insumos[idx].value)),
-                onQtyChanged: (v) => setState(
-                    () => _insumos[idx] = MapEntry(_insumos[idx].key, v)),
-                onRemove: () => setState(() => _insumos.removeAt(idx)),
+            Builder(builder: (ctx) {
+              final state = Provider.of<AppState>(ctx, listen: false);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ..._insumos.asMap().entries.map((e) {
+                    final idx = e.key;
+                    return _InsumoRow(
+                      insumoId: e.value.key,
+                      qty: e.value.value,
+                      allInsumos: state.insumos,
+                      onInsumoChanged: (v) => setState(
+                          () => _insumos[idx] = MapEntry(v, _insumos[idx].value)),
+                      onQtyChanged: (v) => setState(
+                          () => _insumos[idx] = MapEntry(_insumos[idx].key, v)),
+                      onRemove: () => setState(() => _insumos.removeAt(idx)),
+                    );
+                  }),
+                  TextButton.icon(
+                    onPressed: () {
+                      if (state.insumos.isEmpty) return;
+                      setState(() => _insumos.add(MapEntry(state.insumos.first.id, 1)));
+                    },
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('Agregar insumo'),
+                  ),
+                ],
               );
             }),
-            TextButton.icon(
-              onPressed: () => setState(() =>
-                  _insumos.add(MapEntry(Insumo.values.first, 1))),
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text('Agregar insumo'),
-            ),
 
             // ── Productos consumidos ───────────────────────────────────
             if (productosDisponibles.isNotEmpty) ...[
@@ -835,18 +870,20 @@ class _ComboDialogState extends State<_ComboDialog> {
   }
 }
 
-// ── Fila de insumo dentro del diálogo de combo ────────────────────────────────
+// ── Fila de insumo dentro del diálogo de combo/producto ──────────────────────
 
 class _InsumoRow extends StatefulWidget {
-  final Insumo insumo;
+  final String insumoId;
   final int qty;
-  final ValueChanged<Insumo> onInsumoChanged;
+  final List<InsumoModel> allInsumos;
+  final ValueChanged<String> onInsumoChanged;
   final ValueChanged<int> onQtyChanged;
   final VoidCallback onRemove;
 
   const _InsumoRow({
-    required this.insumo,
+    required this.insumoId,
     required this.qty,
+    required this.allInsumos,
     required this.onInsumoChanged,
     required this.onQtyChanged,
     required this.onRemove,
@@ -873,13 +910,17 @@ class _InsumoRowState extends State<_InsumoRow> {
 
   @override
   Widget build(BuildContext context) {
+    final currentId = widget.allInsumos.any((i) => i.id == widget.insumoId)
+        ? widget.insumoId
+        : (widget.allInsumos.isNotEmpty ? widget.allInsumos.first.id : null);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Expanded(
-            child: DropdownButtonFormField<Insumo>(
-              value: widget.insumo,
+            child: DropdownButtonFormField<String>(
+              value: currentId,
               isDense: true,
               decoration: InputDecoration(
                 contentPadding:
@@ -891,13 +932,12 @@ class _InsumoRowState extends State<_InsumoRow> {
                     borderRadius: BorderRadius.circular(8),
                     borderSide: const BorderSide(color: AppTheme.grey300)),
               ),
-              items: Insumo.values
+              items: widget.allInsumos
                   .map((i) => DropdownMenuItem(
-                      value: i,
-                      child: Text(i.label,
-                          style: const TextStyle(fontSize: 13))))
+                      value: i.id,
+                      child: Text(i.nombre, style: const TextStyle(fontSize: 13))))
                   .toList(),
-              onChanged: (v) => widget.onInsumoChanged(v!),
+              onChanged: (v) { if (v != null) widget.onInsumoChanged(v); },
             ),
           ),
           const SizedBox(width: 8),
@@ -918,8 +958,7 @@ class _InsumoRowState extends State<_InsumoRow> {
                     borderRadius: BorderRadius.circular(8),
                     borderSide: const BorderSide(color: AppTheme.grey300)),
               ),
-              onChanged: (v) =>
-                  widget.onQtyChanged(int.tryParse(v) ?? 1),
+              onChanged: (v) => widget.onQtyChanged(int.tryParse(v) ?? 1),
             ),
           ),
           IconButton(
@@ -1186,6 +1225,170 @@ class _ProductoComboRowState extends State<_ProductoComboRow> {
             icon: const Icon(Icons.close, size: 18, color: AppTheme.grey600),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Lista de insumos editable ─────────────────────────────────────────────────
+
+class _InsumosList extends StatelessWidget {
+  const _InsumosList({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.insumos.isEmpty) {
+      return const Text('No hay insumos configurados.',
+          style: TextStyle(color: AppTheme.grey600, fontSize: 13));
+    }
+    return Column(
+      children: [
+        ...state.insumos.map((insumo) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _InsumoListTile(insumo: insumo, state: state),
+            )),
+        const SizedBox(height: 4),
+        OutlinedButton.icon(
+          onPressed: () => _showInsumoDialog(context, state),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Nuevo insumo'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppTheme.brownMed,
+            side: const BorderSide(color: AppTheme.brownMed),
+            minimumSize: const Size.fromHeight(46),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showInsumoDialog(BuildContext context, AppState state, [InsumoModel? existing]) {
+    final ctrl = TextEditingController(text: existing?.nombre ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing == null ? 'Nuevo insumo' : 'Editar insumo'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Nombre del insumo'),
+          textCapitalization: TextCapitalization.sentences,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              final nombre = ctrl.text.trim();
+              if (nombre.isEmpty) return;
+              if (existing == null) {
+                state.agregarInsumo(nombre);
+              } else {
+                state.editarInsumo(existing.id, nombre);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InsumoListTile extends StatelessWidget {
+  const _InsumoListTile({required this.insumo, required this.state});
+  final InsumoModel insumo;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final stockEntry = state.stock[insumo.id];
+    final actual = stockEntry?.actual ?? 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.grey300),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(insumo.nombre,
+                style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+          Text('Stock: $actual',
+              style: const TextStyle(fontSize: 12, color: AppTheme.grey600)),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _InsumosList(state: state)
+                ._showInsumoDialog(context, state, insumo),
+            child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.grey600),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _confirmarEliminar(context),
+            child: const Icon(Icons.delete_outline, size: 18, color: AppTheme.red),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmarEliminar(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar insumo'),
+        content: Text(
+            '¿Eliminar "${insumo.nombre}"? Se perderá su stock y no podrá usarse en combos/productos existentes.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () {
+              state.eliminarInsumo(insumo.id);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar', style: TextStyle(color: AppTheme.red)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Chip de margen estimado ───────────────────────────────────────────────────
+
+class _MargenChip extends StatelessWidget {
+  const _MargenChip({required this.producto, required this.state});
+  final Producto producto;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final costo = state.costoEstimadoProducto(producto);
+    if (costo == null) return const SizedBox.shrink();
+    final margen = producto.precio - costo;
+    final pct = producto.precio > 0 ? (margen / producto.precio * 100).round() : 0;
+    final positive = margen >= 0;
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(
+          color: positive ? AppTheme.greenLight : AppTheme.redLight,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Text(
+          '${positive ? '+' : ''}$pct%',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: positive ? AppTheme.green : AppTheme.red,
+          ),
+        ),
       ),
     );
   }

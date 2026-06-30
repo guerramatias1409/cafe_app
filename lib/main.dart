@@ -10,6 +10,7 @@ import 'screens/stock_screen.dart';
 import 'screens/resumen_screen.dart';
 import 'screens/historial_screen.dart';
 import 'screens/config_screen.dart';
+import 'screens/compras_screen.dart';
 import 'theme.dart';
 
 void main() async {
@@ -38,17 +39,17 @@ class CafeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Café al Paso',
-    theme: AppTheme.theme,
-    debugShowCheckedModeBanner: false,
-    localizationsDelegates: const [
-      GlobalMaterialLocalizations.delegate,
-      GlobalWidgetsLocalizations.delegate,
-      GlobalCupertinoLocalizations.delegate,
-    ],
-    supportedLocales: const [Locale('es')],
-    home: const _Shell(),
-  );
+        title: 'Café al Paso',
+        theme: AppTheme.theme,
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('es')],
+        home: const _Shell(),
+      );
 }
 
 class _Shell extends StatefulWidget {
@@ -64,15 +65,17 @@ class _ShellState extends State<_Shell> {
   static const _screens = [
     VentasScreen(),
     StockScreen(),
+    ComprasScreen(),
     ResumenScreen(),
     HistorialScreen(),
     ConfigScreen(),
   ];
 
-  static const _labels = ['Ventas', 'Stock', 'Resumen', 'Historial', 'Config'];
+  static const _labels = ['Ventas', 'Stock', 'Compras', 'Resumen', 'Historial', 'Config'];
   static const _icons = [
     Icons.point_of_sale_outlined,
     Icons.inventory_2_outlined,
+    Icons.shopping_bag_outlined,
     Icons.bar_chart_outlined,
     Icons.receipt_long_outlined,
     Icons.tune_outlined,
@@ -80,6 +83,7 @@ class _ShellState extends State<_Shell> {
   static const _activeIcons = [
     Icons.point_of_sale,
     Icons.inventory_2,
+    Icons.shopping_bag,
     Icons.bar_chart,
     Icons.receipt_long,
     Icons.tune,
@@ -100,8 +104,7 @@ class _ShellState extends State<_Shell> {
             // Quick total in app bar
             if (state.ventas.isNotEmpty)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(20),
@@ -125,11 +128,25 @@ class _ShellState extends State<_Shell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _idx,
         onDestinationSelected: (i) => setState(() => _idx = i),
-        destinations: List.generate(5, (i) => NavigationDestination(
-          icon: Icon(_icons[i]),
-          selectedIcon: Icon(_activeIcons[i], color: AppTheme.caramel),
-          label: _labels[i],
-        )),
+        destinations: List.generate(6, (i) {
+          // Badge de alerta en Stock (índice 1) cuando hay stock bajo mínimo
+          final needsBadge = i == 1 && state.hayStockBajoMinimo;
+          return NavigationDestination(
+            icon: needsBadge
+                ? Badge(
+                    backgroundColor: Colors.orange,
+                    child: Icon(_icons[i]),
+                  )
+                : Icon(_icons[i]),
+            selectedIcon: needsBadge
+                ? Badge(
+                    backgroundColor: Colors.orange,
+                    child: Icon(_activeIcons[i], color: AppTheme.caramel),
+                  )
+                : Icon(_activeIcons[i], color: AppTheme.caramel),
+            label: _labels[i],
+          );
+        }),
       ),
     );
   }

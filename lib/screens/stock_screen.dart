@@ -27,14 +27,15 @@ class StockScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // ── Insumos fijos ──────────────────────────────────────────────────
+          // ── Insumos dinámicos ─────────────────────────────────────────────
           const SectionHeader('Insumos'),
           const SizedBox(height: 8),
-          ...Insumo.values.map((insumo) {
-            final entry = state.stock[insumo]!;
+          ...state.insumos.map((insumo) {
+            final entry = state.stock[insumo.id] ??
+                StockEntry(insumoId: insumo.id, inicial: 0);
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _StockRow(entry: entry, state: state),
+              child: _StockRow(insumo: insumo, entry: entry, state: state),
             );
           }),
 
@@ -63,11 +64,59 @@ class StockScreen extends StatelessWidget {
   }
 }
 
+// ── Widget reutilizable para campo mini ───────────────────────────────────────
+
+class _MiniField extends StatelessWidget {
+  const _MiniField({
+    required this.controller,
+    required this.label,
+    required this.color,
+    required this.onFocusLost,
+  });
+  final TextEditingController controller;
+  final String label;
+  final Color color;
+  final VoidCallback onFocusLost;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      onFocusChange: (hasFocus) { if (!hasFocus) onFocusLost(); },
+      child: TextField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: color),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(fontSize: 11),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppTheme.grey300),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppTheme.grey300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: AppTheme.caramel, width: 1.5),
+          ),
+        ),
+        onSubmitted: (_) { onFocusLost(); FocusScope.of(context).unfocus(); },
+      ),
+    );
+  }
+}
+
 class _StockRow extends StatefulWidget {
+  final InsumoModel insumo;
   final StockEntry entry;
   final AppState state;
 
-  const _StockRow({required this.entry, required this.state});
+  const _StockRow({required this.insumo, required this.entry, required this.state});
 
   @override
   State<_StockRow> createState() => _StockRowState();
@@ -75,18 +124,21 @@ class _StockRow extends StatefulWidget {
 
 class _StockRowState extends State<_StockRow> {
   late TextEditingController _ctrl;
-  bool _editing = false;
+  late TextEditingController _minCtrl;
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.entry.inicial.toString());
+    _minCtrl = TextEditingController(
+      text: (widget.state.stockMinimoInsumos[widget.insumo.id] ?? 0).toString(),
+    );
   }
 
   @override
   void didUpdateWidget(_StockRow old) {
     super.didUpdateWidget(old);
-    if (!_editing && old.entry.inicial != widget.entry.inicial) {
+    if (old.entry.inicial != widget.entry.inicial) {
       _ctrl.text = widget.entry.inicial.toString();
     }
   }
@@ -94,14 +146,19 @@ class _StockRowState extends State<_StockRow> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _minCtrl.dispose();
     super.dispose();
   }
 
-  void _save() {
+  void _saveInicial() {
     final val = int.tryParse(_ctrl.text) ?? 0;
-    widget.state.setStockInicial(widget.entry.insumo, val);
-    setState(() => _editing = false);
+    widget.state.setStockInicial(widget.insumo.id, val);
     FocusScope.of(context).unfocus();
+  }
+
+  void _saveMin() {
+    final val = int.tryParse(_minCtrl.text) ?? 0;
+    widget.state.setStockMinimoInsumo(widget.insumo.id, val);
   }
 
   Color _stockColor(int actual, int inicial) {
@@ -115,97 +172,82 @@ class _StockRowState extends State<_StockRow> {
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
-    final stockColor = _stockColor(entry.actual, entry.inicial);
+    final bajominimo = widget.state.stockBajoMinimo(widget.insumo.id);
+    final stockColor = entry.actual <= 0 && entry.inicial > 0
+        ? AppTheme.red
+        : bajominimo
+            ? Colors.orange
+            : _stockColor(entry.actual, entry.inicial);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.white,
+        color: bajominimo ? const Color(0xFFFFF8E1) : AppTheme.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: entry.actual <= 0 && entry.inicial > 0 ? AppTheme.red.withOpacity(0.4) : AppTheme.grey300,
+          color: bajominimo
+              ? Colors.orange.withOpacity(0.6)
+              : (entry.actual <= 0 && entry.inicial > 0
+                  ? AppTheme.red.withOpacity(0.4)
+                  : AppTheme.grey300),
         ),
       ),
       child: Row(
         children: [
-          // Insumo name
           Expanded(
             flex: 3,
-            child: Text(
-              entry.insumo.label,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.brownDark),
+            child: Row(
+              children: [
+                if (bajominimo) ...[
+                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+                  const SizedBox(width: 4),
+                ],
+                Expanded(
+                  child: Text(
+                    widget.insumo.nombre,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.brownDark),
+                  ),
+                ),
+              ],
             ),
           ),
-
-          // Stock inicial editable
           Expanded(
             flex: 2,
-            child: Focus(
-              onFocusChange: (hasFocus) {
-                if (hasFocus)
-                  setState(() => _editing = true);
-                else
-                  _save();
-              },
-              child: TextField(
-                controller: _ctrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.blue,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Inicial',
-                  labelStyle: const TextStyle(fontSize: 11),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppTheme.grey300),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppTheme.grey300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppTheme.caramel, width: 1.5),
-                  ),
-                ),
-                onSubmitted: (_) => _save(),
-              ),
+            child: _MiniField(
+              controller: _ctrl,
+              label: 'Inicial',
+              color: AppTheme.blue,
+              onFocusLost: _saveInicial,
             ),
           ),
-
-          const SizedBox(width: 12),
-
-          // Vendidos
+          const SizedBox(width: 6),
+          Expanded(
+            flex: 2,
+            child: _MiniField(
+              controller: _minCtrl,
+              label: 'Mínimo',
+              color: Colors.orange.shade700,
+              onFocusLost: _saveMin,
+            ),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             flex: 1,
             child: Column(
               children: [
                 Text('${entry.vendidos}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.grey600)),
-                const Text('vendidos', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                const Text('vend.', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
               ],
             ),
           ),
-
           const SizedBox(width: 4),
-
-          // Stock actual
           Expanded(
             flex: 1,
             child: Column(
               children: [
                 Text(
                   '${entry.actual}',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: stockColor,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: stockColor),
                 ),
                 const Text('quedan', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
               ],
@@ -238,18 +280,21 @@ class _ProductoStockRow extends StatefulWidget {
 
 class _ProductoStockRowState extends State<_ProductoStockRow> {
   late TextEditingController _ctrl;
-  bool _editing = false;
+  late TextEditingController _minCtrl;
 
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.inicial.toString());
+    _minCtrl = TextEditingController(
+      text: (widget.state.stockMinimoProductos[widget.producto.id] ?? 0).toString(),
+    );
   }
 
   @override
   void didUpdateWidget(_ProductoStockRow old) {
     super.didUpdateWidget(old);
-    if (!_editing && old.inicial != widget.inicial) {
+    if (old.inicial != widget.inicial) {
       _ctrl.text = widget.inicial.toString();
     }
   }
@@ -257,14 +302,19 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
   @override
   void dispose() {
     _ctrl.dispose();
+    _minCtrl.dispose();
     super.dispose();
   }
 
-  void _save() {
+  void _saveInicial() {
     final val = int.tryParse(_ctrl.text) ?? 0;
     widget.state.setStockInicialProducto(widget.producto.id, val);
-    setState(() => _editing = false);
     FocusScope.of(context).unfocus();
+  }
+
+  void _saveMin() {
+    final val = int.tryParse(_minCtrl.text) ?? 0;
+    widget.state.setStockMinimoProducto(widget.producto.id, val);
   }
 
   Color _stockColor(int actual, int inicial) {
@@ -278,73 +328,71 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
   @override
   Widget build(BuildContext context) {
     final actual = widget.inicial - widget.vendidos;
-    final stockColor = _stockColor(actual, widget.inicial);
+    final bajominimo = widget.state.stockProductoBajoMinimo(widget.producto.id);
+    final stockColor = actual <= 0 && widget.inicial > 0
+        ? AppTheme.red
+        : bajominimo
+            ? Colors.orange
+            : _stockColor(actual, widget.inicial);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.white,
+        color: bajominimo ? const Color(0xFFFFF8E1) : AppTheme.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: actual <= 0 && widget.inicial > 0 ? AppTheme.red.withOpacity(0.4) : AppTheme.grey300,
+          color: bajominimo
+              ? Colors.orange.withOpacity(0.6)
+              : (actual <= 0 && widget.inicial > 0
+                  ? AppTheme.red.withOpacity(0.4)
+                  : AppTheme.grey300),
         ),
       ),
       child: Row(
         children: [
           Expanded(
             flex: 3,
-            child: Text(
-              widget.producto.displayNombre,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.brownDark),
+            child: Row(
+              children: [
+                if (bajominimo) ...[
+                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+                  const SizedBox(width: 4),
+                ],
+                Expanded(
+                  child: Text(
+                    widget.producto.displayNombre,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.brownDark),
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
             flex: 2,
-            child: Focus(
-              onFocusChange: (hasFocus) {
-                if (hasFocus)
-                  setState(() => _editing = true);
-                else
-                  _save();
-              },
-              child: TextField(
-                controller: _ctrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.blue,
-                ),
-                decoration: InputDecoration(
-                  labelText: 'Inicial',
-                  labelStyle: const TextStyle(fontSize: 11),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppTheme.grey300),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppTheme.grey300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppTheme.caramel, width: 1.5),
-                  ),
-                ),
-                onSubmitted: (_) => _save(),
-              ),
+            child: _MiniField(
+              controller: _ctrl,
+              label: 'Inicial',
+              color: AppTheme.blue,
+              onFocusLost: _saveInicial,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 6),
+          Expanded(
+            flex: 2,
+            child: _MiniField(
+              controller: _minCtrl,
+              label: 'Mínimo',
+              color: Colors.orange.shade700,
+              onFocusLost: _saveMin,
+            ),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             flex: 1,
             child: Column(
               children: [
                 Text('${widget.vendidos}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.grey600)),
-                const Text('vendidos', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                const Text('vend.', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
               ],
             ),
           ),
@@ -353,14 +401,7 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
             flex: 1,
             child: Column(
               children: [
-                Text(
-                  '$actual',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: stockColor,
-                  ),
-                ),
+                Text('$actual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: stockColor)),
                 const Text('quedan', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
               ],
             ),

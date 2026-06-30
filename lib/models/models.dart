@@ -1,35 +1,38 @@
-import 'dart:convert';
 
 // ─── Insumos ──────────────────────────────────────────────────────────────────
 
-// vaso12/tapa12 van AL FINAL para no romper los índices ya persistidos (0–7)
-enum Insumo {
-  vaso,
-  tapa,
-  triangulos,
-  vaso12,
-  tapa12,
-  croissant,
+class InsumoModel {
+  final String id;
+  String nombre;
+
+  InsumoModel({required this.id, required this.nombre});
+
+  Map<String, dynamic> toJson() => {'id': id, 'nombre': nombre};
+
+  factory InsumoModel.fromJson(Map<String, dynamic> j) =>
+      InsumoModel(id: j['id'], nombre: j['nombre']);
 }
 
-extension InsumoLabel on Insumo {
-  String get label {
-    switch (this) {
-      case Insumo.vaso:
-        return 'Vaso 8oz';
-      case Insumo.tapa:
-        return 'Tapa 8oz';
-      case Insumo.triangulos:
-        return 'Triángulos de Miga';
-      case Insumo.vaso12:
-        return 'Vaso 12oz';
-      case Insumo.tapa12:
-        return 'Tapa 12oz';
-      case Insumo.croissant:
-        return 'Croissant';
-    }
-  }
-}
+// IDs semilla (usados también por TamanoBebida para descontar stock automáticamente)
+const kVasoStdId = 'vaso';
+const kTapaStdId = 'tapa';
+const kVaso12Id  = 'vaso12';
+const kTapa12Id  = 'tapa12';
+
+/// Insumos por defecto que se cargan en la primera ejecución.
+List<InsumoModel> kDefaultInsumos() => [
+      InsumoModel(id: kVasoStdId,  nombre: 'Vaso 8oz'),
+      InsumoModel(id: kTapaStdId,  nombre: 'Tapa 8oz'),
+      InsumoModel(id: 'triangulos', nombre: 'Triángulos de Miga'),
+      InsumoModel(id: kVaso12Id,   nombre: 'Vaso 12oz'),
+      InsumoModel(id: kTapa12Id,   nombre: 'Tapa 12oz'),
+      InsumoModel(id: 'croissant', nombre: 'Croissant'),
+    ];
+
+/// Mapeo de índice legacy (enum Insumo) → ID de cadena para migración.
+const kLegacyInsumoIds = [
+  kVasoStdId, kTapaStdId, 'triangulos', kVaso12Id, kTapa12Id, 'croissant'
+];
 
 // ─── Combo ────────────────────────────────────────────────────────────────────
 
@@ -37,14 +40,14 @@ class Combo {
   final String id;
   String nombre;
   int precioFijo;
-  Map<Insumo, int> insumos;
+  Map<String, int> insumos; // insumoId → qty
   Map<String, int> productosConsumidos; // productoId → qty
 
   Combo({
     required this.id,
     required this.nombre,
     required this.precioFijo,
-    Map<Insumo, int>? insumos,
+    Map<String, int>? insumos,
     Map<String, int>? productosConsumidos,
   })  : insumos = insumos ?? {},
         productosConsumidos = productosConsumidos ?? {};
@@ -53,16 +56,21 @@ class Combo {
         'id': id,
         'nombre': nombre,
         'precioFijo': precioFijo,
-        'insumos': insumos.map((k, v) => MapEntry(k.index.toString(), v)),
+        'insumos': insumos,
         'productosConsumidos': productosConsumidos,
       };
 
   factory Combo.fromJson(Map<String, dynamic> j) {
-    final insumos = <Insumo, int>{};
+    final insumos = <String, int>{};
     if (j['insumos'] != null) {
       (j['insumos'] as Map<String, dynamic>).forEach((k, v) {
-        final idx = int.parse(k);
-        if (idx < Insumo.values.length) insumos[Insumo.values[idx]] = v as int;
+        // Formato nuevo: clave ya es un id string; formato legacy: clave era índice int
+        final id = int.tryParse(k) != null
+            ? (int.parse(k) < kLegacyInsumoIds.length
+                ? kLegacyInsumoIds[int.parse(k)]
+                : k)
+            : k;
+        insumos[id] = v as int;
       });
     }
     final productos = <String, int>{};
@@ -260,8 +268,8 @@ extension TamanoBebidaLabel on TamanoBebida {
   }
 
   /// Insumos correspondientes al tamaño
-  Insumo get vasoInsumo => this == TamanoBebida.oz12 ? Insumo.vaso12 : Insumo.vaso;
-  Insumo get tapaInsumo => this == TamanoBebida.oz12 ? Insumo.tapa12 : Insumo.tapa;
+  String get vasoInsumoId => this == TamanoBebida.oz12 ? kVaso12Id : kVasoStdId;
+  String get tapaInsumoId => this == TamanoBebida.oz12 ? kTapa12Id : kTapaStdId;
 }
 
 // ─── Producto (ítem libre del menú) ───────────────────────────────────────────
@@ -272,8 +280,8 @@ class Producto {
   int precio;
   CategoriaProducto categoria;
   TamanoBebida? tamanoBebida; // solo relevante para Cafetería
-  Map<Insumo, int> insumosConsumidos; // insumos que se descuentan al vender
-  Map<String, int> productosConsumidos; // productoId → qty al vender
+  Map<String, int> insumosConsumidos; // insumoId → qty
+  Map<String, int> productosConsumidos; // productoId → qty
 
   Producto({
     required this.id,
@@ -281,7 +289,7 @@ class Producto {
     required this.precio,
     required this.categoria,
     this.tamanoBebida,
-    Map<Insumo, int>? insumosConsumidos,
+    Map<String, int>? insumosConsumidos,
     Map<String, int>? productosConsumidos,
   })  : insumosConsumidos = insumosConsumidos ?? {},
         productosConsumidos = productosConsumidos ?? {};
@@ -296,16 +304,21 @@ class Producto {
         'precio': precio,
         'categoria': categoria.index,
         if (tamanoBebida != null) 'tamanoBebida': tamanoBebida!.index,
-        if (insumosConsumidos.isNotEmpty) 'insumosConsumidos': insumosConsumidos.map((k, v) => MapEntry(k.index.toString(), v)),
+        if (insumosConsumidos.isNotEmpty) 'insumosConsumidos': insumosConsumidos,
         if (productosConsumidos.isNotEmpty) 'productosConsumidos': productosConsumidos,
       };
 
   factory Producto.fromJson(Map<String, dynamic> j) {
-    final insumos = <Insumo, int>{};
+    final insumos = <String, int>{};
     if (j['insumosConsumidos'] != null) {
       (j['insumosConsumidos'] as Map<String, dynamic>).forEach((k, v) {
-        final idx = int.parse(k);
-        if (idx < Insumo.values.length) insumos[Insumo.values[idx]] = v as int;
+        // Migración: clave puede ser índice int (legacy) o id string (nuevo)
+        final id = int.tryParse(k) != null
+            ? (int.parse(k) < kLegacyInsumoIds.length
+                ? kLegacyInsumoIds[int.parse(k)]
+                : k)
+            : k;
+        insumos[id] = v as int;
       });
     }
     final productos = <String, int>{};
@@ -324,26 +337,144 @@ class Producto {
   }
 }
 
+// ─── Proveedor ────────────────────────────────────────────────────────────────
+
+class Proveedor {
+  final String id;
+  String nombre;
+  String telefono;
+  String notas;
+
+  Proveedor({required this.id, required this.nombre, this.telefono = '', this.notas = ''});
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'nombre': nombre,
+        'telefono': telefono,
+        'notas': notas,
+      };
+
+  factory Proveedor.fromJson(Map<String, dynamic> j) => Proveedor(
+        id: j['id'],
+        nombre: j['nombre'],
+        telefono: j['telefono'] ?? '',
+        notas: j['notas'] ?? '',
+      );
+}
+
+// ─── Pedido a proveedor ───────────────────────────────────────────────────────
+
+enum TipoItemPedido { insumo, producto }
+
+class ItemPedido {
+  final TipoItemPedido tipo;
+  final String referenciaId; // Insumo.index.toString() o Producto.id
+  final String nombre;
+  int cantidad;
+  int precioUnitario;
+
+  ItemPedido({
+    required this.tipo,
+    required this.referenciaId,
+    required this.nombre,
+    required this.cantidad,
+    required this.precioUnitario,
+  });
+
+  int get subtotal => cantidad * precioUnitario;
+
+  Map<String, dynamic> toJson() => {
+        'tipo': tipo.index,
+        'referenciaId': referenciaId,
+        'nombre': nombre,
+        'cantidad': cantidad,
+        'precioUnitario': precioUnitario,
+      };
+
+  factory ItemPedido.fromJson(Map<String, dynamic> j) => ItemPedido(
+        tipo: TipoItemPedido.values[j['tipo']],
+        referenciaId: j['referenciaId'],
+        nombre: j['nombre'],
+        cantidad: j['cantidad'],
+        precioUnitario: j['precioUnitario'],
+      );
+}
+
+enum EstadoPedido { pendiente, recibido }
+
+class PedidoProveedor {
+  final String id;
+  final String proveedorId;
+  String proveedorNombre;
+  DateTime fecha;
+  List<ItemPedido> items;
+  EstadoPedido estado;
+  String notas;
+  DateTime? fechaRecepcion;
+
+  PedidoProveedor({
+    required this.id,
+    required this.proveedorId,
+    required this.proveedorNombre,
+    required this.fecha,
+    required this.items,
+    this.estado = EstadoPedido.pendiente,
+    this.notas = '',
+    this.fechaRecepcion,
+  });
+
+  int get costoTotal => items.fold(0, (s, i) => s + i.subtotal);
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'proveedorId': proveedorId,
+        'proveedorNombre': proveedorNombre,
+        'fecha': fecha.toIso8601String(),
+        'items': items.map((i) => i.toJson()).toList(),
+        'estado': estado.index,
+        'notas': notas,
+        if (fechaRecepcion != null) 'fechaRecepcion': fechaRecepcion!.toIso8601String(),
+      };
+
+  factory PedidoProveedor.fromJson(Map<String, dynamic> j) => PedidoProveedor(
+        id: j['id'],
+        proveedorId: j['proveedorId'],
+        proveedorNombre: j['proveedorNombre'],
+        fecha: DateTime.parse(j['fecha']),
+        items: (j['items'] as List).map((i) => ItemPedido.fromJson(Map<String, dynamic>.from(i))).toList(),
+        estado: EstadoPedido.values[j['estado'] ?? 0],
+        notas: j['notas'] ?? '',
+        fechaRecepcion: j['fechaRecepcion'] != null ? DateTime.parse(j['fechaRecepcion']) : null,
+      );
+}
+
 // ─── Stock entry ──────────────────────────────────────────────────────────────
 
 class StockEntry {
-  final Insumo insumo;
+  final String insumoId;
   int inicial;
   int vendidos;
 
-  StockEntry({required this.insumo, required this.inicial, this.vendidos = 0});
+  StockEntry({required this.insumoId, required this.inicial, this.vendidos = 0});
 
   int get actual => inicial - vendidos;
 
   Map<String, dynamic> toJson() => {
-        'insumo': insumo.index,
+        'insumoId': insumoId,
         'inicial': inicial,
         'vendidos': vendidos,
       };
 
-  factory StockEntry.fromJson(Map<String, dynamic> j) => StockEntry(
-        insumo: Insumo.values[j['insumo']],
-        inicial: j['inicial'],
-        vendidos: j['vendidos'],
-      );
+  static StockEntry fromJson(Map<String, dynamic> j) {
+    // Migración: formato antiguo tenía 'insumo' como índice int
+    final id = j['insumoId'] as String? ??
+        (j['insumo'] != null && (j['insumo'] as int) < kLegacyInsumoIds.length
+            ? kLegacyInsumoIds[j['insumo'] as int]
+            : 'desconocido_${j['insumo']}');
+    return StockEntry(
+      insumoId: id,
+      inicial: j['inicial'],
+      vendidos: j['vendidos'],
+    );
+  }
 }

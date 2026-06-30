@@ -5,10 +5,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/models.dart';
 
 class AppState extends ChangeNotifier {
-  // ── Stock de insumos
-  Map<Insumo, StockEntry> stock = {
-    for (var i in Insumo.values) i: StockEntry(insumo: i, inicial: 0)
-  };
+  // ── Insumos dinámicos
+  List<InsumoModel> insumos = kDefaultInsumos();
+
+  // ── Stock de insumos (insumoId → StockEntry)
+  Map<String, StockEntry> stock = {};
 
   // ── Ventas registradas
   List<Venta> ventas = [];
@@ -24,6 +25,18 @@ class AppState extends ChangeNotifier {
 
   // ── Vendidos extra de productos (consumidos por combos, no directamente)
   Map<String, int> _stockVendidosProductosExtra = {};
+
+  // ── Proveedores y pedidos
+  List<Proveedor> proveedores = [];
+  List<PedidoProveedor> pedidos = [];
+
+  // ── Stock mínimo (para alertas)
+  Map<String, int> stockMinimoInsumos = {};
+  Map<String, int> stockMinimoProductos = {};
+
+  // ── Precios de compra más recientes (para calcular márgenes)
+  // key: "i_${insumo.index}" para insumos, "p_${id}" para productos
+  Map<String, int> preciosCompra = {};
 
   // ── Firestore
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -67,6 +80,48 @@ class AppState extends ChangeNotifier {
     return directo + (_stockVendidosProductosExtra[id] ?? 0);
   }
 
+  int gastoConProveedor(String proveedorId) => pedidos
+      .where((p) => p.proveedorId == proveedorId && p.estado == EstadoPedido.recibido)
+      .fold(0, (s, p) => s + p.costoTotal);
+
+  /// Costo estimado de un producto en base a precios de compra registrados.
+  /// Retorna null si no hay suficiente información.
+  int? costoEstimadoProducto(Producto p) {
+    // Producto sin componentes: precio de compra directo
+    if (p.insumosConsumidos.isEmpty && p.productosConsumidos.isEmpty) {
+      return preciosCompra['p_${p.id}'];
+    }
+    int costo = 0;
+    for (final e in p.insumosConsumidos.entries) {
+      final precio = preciosCompra['i_${e.key}'];
+      if (precio == null) return null;
+      costo += precio * e.value;
+    }
+    for (final e in p.productosConsumidos.entries) {
+      final precio = preciosCompra['p_${e.key}'];
+      if (precio == null) return null;
+      costo += precio * e.value;
+    }
+    return costo;
+  }
+
+  bool stockBajoMinimo(String insumoId) {
+    final min = stockMinimoInsumos[insumoId];
+    if (min == null || min == 0) return false;
+    return (stock[insumoId]?.actual ?? 0) < min;
+  }
+
+  bool stockProductoBajoMinimo(String id) {
+    final min = stockMinimoProductos[id];
+    if (min == null || min == 0) return false;
+    final actual = (stockInicialProductos[id] ?? 0) - stockVendidosProducto(id);
+    return actual < min;
+  }
+
+  bool get hayStockBajoMinimo =>
+      insumos.any((i) => stockBajoMinimo(i.id)) ||
+      productos.any((p) => stockProductoBajoMinimo(p.id));
+
   // ── Init & Migration ───────────────────────────────────────────────────────
 
   Future<void> _init() async {
@@ -86,6 +141,16 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadFromFirestore() async {
+    // Insumos
+    final insumosDoc = await _db.collection('config').doc('insumos').get();
+    if (insumosDoc.exists) {
+      final list = insumosDoc.data()?['items'] as List? ?? [];
+      if (list.isNotEmpty) {
+        insumos = list.map((j) => InsumoModel.fromJson(Map<String, dynamic>.from(j as Map))).toList();
+      }
+    }
+    _ensureStockEntries();
+
     // Combos
     final combosDoc = await _db.collection('config').doc('combos').get();
     if (combosDoc.exists) {
@@ -110,15 +175,29 @@ class AppState extends ChangeNotifier {
     final stockDoc = await _db.collection('config').doc('stock').get();
     if (stockDoc.exists) {
       final data = stockDoc.data()!;
-      final insumos = data['insumos'] as List? ?? [];
-      for (final j in insumos) {
+      final stockList = data['insumos'] as List? ?? [];
+      for (final j in stockList) {
         final e = StockEntry.fromJson(Map<String, dynamic>.from(j as Map));
-        if (stock.containsKey(e.insumo)) stock[e.insumo] = e;
+        stock[e.insumoId] = e;
       }
+      _ensureStockEntries();
       final inicialProds = data['inicialProductos'] as Map<String, dynamic>? ?? {};
       stockInicialProductos = inicialProds.map((k, v) => MapEntry(k, (v as num).toInt()));
       final extra = data['vendidosExtra'] as Map<String, dynamic>? ?? {};
       _stockVendidosProductosExtra = extra.map((k, v) => MapEntry(k, (v as num).toInt()));
+    }
+
+    // Stock mínimo y precios de compra
+    final stockData = stockDoc.exists ? stockDoc.data()! : <String, dynamic>{};
+    final minimoIns = stockData['minimoInsumos'] as Map<String, dynamic>? ?? {};
+    stockMinimoInsumos = minimoIns.map((k, v) => MapEntry(k, (v as num).toInt()));
+    final minimoProds = stockData['minimoProductos'] as Map<String, dynamic>? ?? {};
+    stockMinimoProductos = minimoProds.map((k, v) => MapEntry(k, (v as num).toInt()));
+
+    final preciosDoc = await _db.collection('config').doc('precios_compra').get();
+    if (preciosDoc.exists) {
+      final m = preciosDoc.data() ?? {};
+      preciosCompra = m.map((k, v) => MapEntry(k, (v as num).toInt()));
     }
 
     // Ventas
@@ -127,6 +206,20 @@ class AppState extends ChangeNotifier {
         .map((d) => Venta.fromJson(Map<String, dynamic>.from(d.data())))
         .toList();
     ventas.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    // Proveedores
+    final provSnap = await _db.collection('proveedores').get();
+    proveedores = provSnap.docs
+        .map((d) => Proveedor.fromJson(Map<String, dynamic>.from(d.data())))
+        .toList();
+    proveedores.sort((a, b) => a.nombre.compareTo(b.nombre));
+
+    // Pedidos
+    final pedidosSnap = await _db.collection('pedidos').get();
+    pedidos = pedidosSnap.docs
+        .map((d) => PedidoProveedor.fromJson(Map<String, dynamic>.from(d.data())))
+        .toList();
+    pedidos.sort((a, b) => b.fecha.compareTo(a.fecha));
   }
 
   Future<void> _migrateFromSharedPreferences() async {
@@ -140,6 +233,9 @@ class AppState extends ChangeNotifier {
     });
     batch.set(_db.collection('config').doc('productos'), {
       'items': productos.map((p) => p.toJson()).toList(),
+    });
+    batch.set(_db.collection('config').doc('insumos'), {
+      'items': insumos.map((i) => i.toJson()).toList(),
     });
     batch.set(_db.collection('config').doc('stock'), {
       'insumos': stock.values.map((e) => e.toJson()).toList(),
@@ -163,13 +259,15 @@ class AppState extends ChangeNotifier {
   Future<void> _loadFromSharedPrefs() async {
     final prefs = await SharedPreferences.getInstance();
 
+    _ensureStockEntries();
     final stockStr = prefs.getString(_kStock);
     if (stockStr != null) {
       final list = jsonDecode(stockStr) as List;
       for (final j in list) {
         final e = StockEntry.fromJson(j);
-        if (stock.containsKey(e.insumo)) stock[e.insumo] = e;
+        stock[e.insumoId] = e;
       }
+      _ensureStockEntries();
     }
 
     final ventasStr = prefs.getString(_kVentas) ?? prefs.getString('ventas_v1');
@@ -216,11 +314,26 @@ class AppState extends ChangeNotifier {
         'items': productos.map((p) => p.toJson()).toList(),
       });
 
+  void _ensureStockEntries() {
+    for (final insumo in insumos) {
+      stock.putIfAbsent(insumo.id, () => StockEntry(insumoId: insumo.id, inicial: 0));
+    }
+  }
+
+  Future<void> _saveInsumosToDb() => _db.collection('config').doc('insumos').set({
+        'items': insumos.map((i) => i.toJson()).toList(),
+      });
+
   Future<void> _saveStockToDb() => _db.collection('config').doc('stock').set({
         'insumos': stock.values.map((e) => e.toJson()).toList(),
         'inicialProductos': stockInicialProductos,
         'vendidosExtra': _stockVendidosProductosExtra,
+        'minimoInsumos': stockMinimoInsumos,
+        'minimoProductos': stockMinimoProductos,
       });
+
+  Future<void> _savePreciosCompraToDb() =>
+      _db.collection('config').doc('precios_compra').set(preciosCompra);
 
   Future<void> _saveVentaToDb(Venta v) =>
       _db.collection('ventas').doc(v.id).set(v.toJson());
@@ -228,10 +341,22 @@ class AppState extends ChangeNotifier {
   Future<void> _deleteVentaFromDb(String id) =>
       _db.collection('ventas').doc(id).delete();
 
+  Future<void> _saveProveedorToDb(Proveedor p) =>
+      _db.collection('proveedores').doc(p.id).set(p.toJson());
+
+  Future<void> _deleteProveedorFromDb(String id) =>
+      _db.collection('proveedores').doc(id).delete();
+
+  Future<void> _savePedidoToDb(PedidoProveedor p) =>
+      _db.collection('pedidos').doc(p.id).set(p.toJson());
+
+  Future<void> _deletePedidoFromDb(String id) =>
+      _db.collection('pedidos').doc(id).delete();
+
   // ── Combos CRUD ────────────────────────────────────────────────────────────
 
   void agregarCombo({required String nombre, required int precio,
-      Map<Insumo, int>? insumos, Map<String, int>? productosConsumidos}) {
+      Map<String, int>? insumos, Map<String, int>? productosConsumidos}) {
     combos.add(Combo(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       nombre: nombre,
@@ -246,7 +371,7 @@ class AppState extends ChangeNotifier {
   void editarCombo(String id,
       {String? nombre,
       int? precio,
-      Map<Insumo, int>? insumos,
+      Map<String, int>? insumos,
       Map<String, int>? productosConsumidos}) {
     final c = combos.firstWhere((c) => c.id == id);
     if (nombre != null) c.nombre = nombre;
@@ -265,8 +390,9 @@ class AppState extends ChangeNotifier {
 
   // ── Stock ──────────────────────────────────────────────────────────────────
 
-  void setStockInicial(Insumo insumo, int cantidad) {
-    stock[insumo]!.inicial = cantidad;
+  void setStockInicial(String insumoId, int cantidad) {
+    stock.putIfAbsent(insumoId, () => StockEntry(insumoId: insumoId, inicial: 0));
+    stock[insumoId]!.inicial = cantidad;
     _saveStockToDb();
     notifyListeners();
   }
@@ -281,7 +407,7 @@ class AppState extends ChangeNotifier {
 
   void agregarProducto(String nombre, int precio, CategoriaProducto categoria,
       {TamanoBebida? tamanoBebida,
-      Map<Insumo, int>? insumosConsumidos,
+      Map<String, int>? insumosConsumidos,
       Map<String, int>? productosConsumidos}) {
     productos.add(Producto(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -302,7 +428,7 @@ class AppState extends ChangeNotifier {
       CategoriaProducto? categoria,
       TamanoBebida? tamanoBebida,
       bool updateTamano = false,
-      Map<Insumo, int>? insumosConsumidos,
+      Map<String, int>? insumosConsumidos,
       Map<String, int>? productosConsumidos,
       bool updateConsumos = false}) {
     final p = productos.firstWhere((p) => p.id == id);
@@ -436,7 +562,7 @@ class AppState extends ChangeNotifier {
     if (data['stock'] != null) {
       for (final j in data['stock'] as List) {
         final e = StockEntry.fromJson(Map<String, dynamic>.from(j as Map));
-        if (stock.containsKey(e.insumo)) stock[e.insumo] = e;
+        stock[e.insumoId] = e;
       }
     }
     if (data['stockInicialProductos'] != null) {
@@ -461,6 +587,159 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Stock mínimo ──────────────────────────────────────────────────────────
+
+  void setStockMinimoInsumo(String insumoId, int minimo) {
+    stockMinimoInsumos[insumoId] = minimo;
+    _saveStockToDb();
+    notifyListeners();
+  }
+
+  // ── Insumos CRUD ───────────────────────────────────────────────────────────
+
+  void agregarInsumo(String nombre) {
+    final id = '${nombre.toLowerCase().replaceAll(RegExp(r'\W+'), '_')}_${DateTime.now().millisecondsSinceEpoch}';
+    insumos.add(InsumoModel(id: id, nombre: nombre));
+    stock.putIfAbsent(id, () => StockEntry(insumoId: id, inicial: 0));
+    _saveInsumosToDb();
+    _saveStockToDb();
+    notifyListeners();
+  }
+
+  void editarInsumo(String id, String nuevoNombre) {
+    final idx = insumos.indexWhere((i) => i.id == id);
+    if (idx == -1) return;
+    insumos[idx].nombre = nuevoNombre;
+    _saveInsumosToDb();
+    notifyListeners();
+  }
+
+  void eliminarInsumo(String id) {
+    insumos.removeWhere((i) => i.id == id);
+    stock.remove(id);
+    stockMinimoInsumos.remove(id);
+    _saveInsumosToDb();
+    _saveStockToDb();
+    notifyListeners();
+  }
+
+  void setStockMinimoProducto(String id, int minimo) {
+    stockMinimoProductos[id] = minimo;
+    _saveStockToDb();
+    notifyListeners();
+  }
+
+  // ── Proveedores CRUD ───────────────────────────────────────────────────────
+
+  void agregarProveedor({required String nombre, String telefono = '', String notas = ''}) {
+    final p = Proveedor(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      nombre: nombre,
+      telefono: telefono,
+      notas: notas,
+    );
+    proveedores.add(p);
+    proveedores.sort((a, b) => a.nombre.compareTo(b.nombre));
+    _saveProveedorToDb(p);
+    notifyListeners();
+  }
+
+  void editarProveedor(String id, {String? nombre, String? telefono, String? notas}) {
+    final idx = proveedores.indexWhere((p) => p.id == id);
+    if (idx == -1) return;
+    final p = proveedores[idx];
+    if (nombre != null) p.nombre = nombre;
+    if (telefono != null) p.telefono = telefono;
+    if (notas != null) p.notas = notas;
+    proveedores.sort((a, b) => a.nombre.compareTo(b.nombre));
+    _saveProveedorToDb(p);
+    notifyListeners();
+  }
+
+  void eliminarProveedor(String id) {
+    proveedores.removeWhere((p) => p.id == id);
+    _deleteProveedorFromDb(id);
+    notifyListeners();
+  }
+
+  // ── Pedidos CRUD ───────────────────────────────────────────────────────────
+
+  void agregarPedido({
+    required String proveedorId,
+    required String proveedorNombre,
+    required DateTime fecha,
+    required List<ItemPedido> items,
+    String notas = '',
+  }) {
+    final p = PedidoProveedor(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      proveedorId: proveedorId,
+      proveedorNombre: proveedorNombre,
+      fecha: fecha,
+      items: items,
+      notas: notas,
+    );
+    pedidos.insert(0, p);
+    _savePedidoToDb(p);
+    notifyListeners();
+  }
+
+  Future<void> marcarPedidoRecibido(String id) async {
+    final idx = pedidos.indexWhere((p) => p.id == id);
+    if (idx == -1) return;
+    final pedido = pedidos[idx];
+    if (pedido.estado == EstadoPedido.recibido) return;
+
+    for (final item in pedido.items) {
+      if (item.tipo == TipoItemPedido.insumo) {
+        stock.putIfAbsent(item.referenciaId, () => StockEntry(insumoId: item.referenciaId, inicial: 0));
+        stock[item.referenciaId]!.inicial += item.cantidad;
+        preciosCompra['i_${item.referenciaId}'] = item.precioUnitario;
+      } else {
+        stockInicialProductos[item.referenciaId] =
+            (stockInicialProductos[item.referenciaId] ?? 0) + item.cantidad;
+        preciosCompra['p_${item.referenciaId}'] = item.precioUnitario;
+      }
+    }
+
+    pedido.estado = EstadoPedido.recibido;
+    pedido.fechaRecepcion = DateTime.now();
+    await _savePedidoToDb(pedido);
+    await _saveStockToDb();
+    await _savePreciosCompraToDb();
+    notifyListeners();
+  }
+
+  Future<void> revertirPedido(String id) async {
+    final idx = pedidos.indexWhere((p) => p.id == id);
+    if (idx == -1) return;
+    final pedido = pedidos[idx];
+    if (pedido.estado != EstadoPedido.recibido) return;
+
+    for (final item in pedido.items) {
+      if (item.tipo == TipoItemPedido.insumo) {
+        final e = stock[item.referenciaId];
+        if (e != null) e.inicial = (e.inicial - item.cantidad).clamp(0, 99999);
+      } else {
+        final actual = stockInicialProductos[item.referenciaId] ?? 0;
+        stockInicialProductos[item.referenciaId] =
+            (actual - item.cantidad).clamp(0, 99999);
+      }
+    }
+
+    pedido.estado = EstadoPedido.pendiente;
+    pedido.fechaRecepcion = null;
+    await _savePedidoToDb(pedido);
+    await _saveStockToDb();
+    notifyListeners();
+  }
+
+  void eliminarPedido(String id) {
+    pedidos.removeWhere((p) => p.id == id);
+    _deletePedidoFromDb(id);
+    notifyListeners();
+  }
+
   // ── Stock helpers ──────────────────────────────────────────────────────────
 
   void _descontarStock(List<ItemCarrito> items) {
@@ -468,8 +747,8 @@ class AppState extends ChangeNotifier {
       final comboIdx = combos.indexWhere((c) => c.id == item.comboId);
       if (comboIdx != -1) {
         final combo = combos[comboIdx];
-        combo.insumos.forEach((insumo, qty) {
-          stock[insumo]!.vendidos += qty * item.cantidad;
+        combo.insumos.forEach((insumoId, qty) {
+          stock[insumoId]?.vendidos += qty * item.cantidad;
         });
         combo.productosConsumidos.forEach((prodId, qty) {
           _stockVendidosProductosExtra[prodId] =
@@ -481,11 +760,11 @@ class AppState extends ChangeNotifier {
       if (pIdx != -1) {
         final p = productos[pIdx];
         if (p.categoria == CategoriaProducto.cafeteria && p.tamanoBebida != null) {
-          stock[p.tamanoBebida!.vasoInsumo]!.vendidos += item.cantidad;
-          stock[p.tamanoBebida!.tapaInsumo]!.vendidos += item.cantidad;
+          stock[p.tamanoBebida!.vasoInsumoId]?.vendidos += item.cantidad;
+          stock[p.tamanoBebida!.tapaInsumoId]?.vendidos += item.cantidad;
         }
-        p.insumosConsumidos.forEach((insumo, qty) {
-          stock[insumo]!.vendidos += qty * item.cantidad;
+        p.insumosConsumidos.forEach((insumoId, qty) {
+          stock[insumoId]?.vendidos += qty * item.cantidad;
         });
         p.productosConsumidos.forEach((prodId, qty) {
           _stockVendidosProductosExtra[prodId] =
@@ -500,8 +779,9 @@ class AppState extends ChangeNotifier {
       final comboIdx = combos.indexWhere((c) => c.id == item.comboId);
       if (comboIdx != -1) {
         final combo = combos[comboIdx];
-        combo.insumos.forEach((insumo, qty) {
-          stock[insumo]!.vendidos -= qty * item.cantidad;
+        combo.insumos.forEach((insumoId, qty) {
+          final e = stock[insumoId];
+          if (e != null) e.vendidos -= qty * item.cantidad;
         });
         combo.productosConsumidos.forEach((prodId, qty) {
           _stockVendidosProductosExtra[prodId] =
@@ -513,11 +793,14 @@ class AppState extends ChangeNotifier {
       if (pIdx != -1) {
         final p = productos[pIdx];
         if (p.categoria == CategoriaProducto.cafeteria && p.tamanoBebida != null) {
-          stock[p.tamanoBebida!.vasoInsumo]!.vendidos -= item.cantidad;
-          stock[p.tamanoBebida!.tapaInsumo]!.vendidos -= item.cantidad;
+          final ev = stock[p.tamanoBebida!.vasoInsumoId];
+          final et = stock[p.tamanoBebida!.tapaInsumoId];
+          if (ev != null) ev.vendidos -= item.cantidad;
+          if (et != null) et.vendidos -= item.cantidad;
         }
-        p.insumosConsumidos.forEach((insumo, qty) {
-          stock[insumo]!.vendidos -= qty * item.cantidad;
+        p.insumosConsumidos.forEach((insumoId, qty) {
+          final e = stock[insumoId];
+          if (e != null) e.vendidos -= qty * item.cantidad;
         });
         p.productosConsumidos.forEach((prodId, qty) {
           _stockVendidosProductosExtra[prodId] =
