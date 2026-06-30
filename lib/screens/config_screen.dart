@@ -164,6 +164,7 @@ class _ProductosList extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
+                  color: p.activo ? null : AppTheme.grey100,
                   border: isLast
                       ? null
                       : const Border(
@@ -216,6 +217,18 @@ class _ProductosList extends StatelessWidget {
                             ],
                           ),
                         ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Transform.scale(
+                        scale: 0.7,
+                        child: Switch(
+                          value: p.activo,
+                          onChanged: (_) => state.toggleProductoActivo(p.id),
+                          activeColor: AppTheme.brownMed,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
                       ),
                     ),
                     GestureDetector(
@@ -477,66 +490,75 @@ class _ProductoDialogState extends State<_ProductoDialog> {
               ),
             ],
 
-            // Insumos y productos consumidos — solo para no Cafetería
-            if (!esCafeteria) ...[
-              const SizedBox(height: 20),
-              const Text('Insumos',
+            // Insumos adicionales — disponible para todas las categorías
+            const SizedBox(height: 20),
+            Text(
+              esCafeteria ? 'Insumos adicionales' : 'Insumos',
+              style: const TextStyle(fontSize: 13, color: AppTheme.grey600),
+            ),
+            if (esCafeteria)
+              const Padding(
+                padding: EdgeInsets.only(top: 2, bottom: 4),
+                child: Text(
+                  'Además del vaso y tapa que se descuentan automáticamente.',
+                  style: TextStyle(fontSize: 11, color: AppTheme.grey600),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Builder(builder: (ctx) {
+              final state = Provider.of<AppState>(ctx, listen: false);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ..._insumos.asMap().entries.map((e) {
+                    final idx = e.key;
+                    return _InsumoRow(
+                      insumoId: e.value.key,
+                      qty: e.value.value,
+                      allInsumos: state.insumos,
+                      onInsumoChanged: (v) => setState(
+                          () => _insumos[idx] = MapEntry(v, _insumos[idx].value)),
+                      onQtyChanged: (v) => setState(
+                          () => _insumos[idx] = MapEntry(_insumos[idx].key, v)),
+                      onRemove: () => setState(() => _insumos.removeAt(idx)),
+                    );
+                  }),
+                  TextButton.icon(
+                    onPressed: () {
+                      if (state.insumos.isEmpty) return;
+                      setState(() => _insumos.add(MapEntry(state.insumos.first.id, 1)));
+                    },
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('Agregar insumo'),
+                  ),
+                ],
+              );
+            }),
+            // Productos consumidos — solo para no Cafetería
+            if (!esCafeteria && productosDisponibles.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text('Productos',
                   style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
               const SizedBox(height: 8),
-              Builder(builder: (ctx) {
-                final state = Provider.of<AppState>(ctx, listen: false);
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ..._insumos.asMap().entries.map((e) {
-                      final idx = e.key;
-                      return _InsumoRow(
-                        insumoId: e.value.key,
-                        qty: e.value.value,
-                        allInsumos: state.insumos,
-                        onInsumoChanged: (v) => setState(
-                            () => _insumos[idx] = MapEntry(v, _insumos[idx].value)),
-                        onQtyChanged: (v) => setState(
-                            () => _insumos[idx] = MapEntry(_insumos[idx].key, v)),
-                        onRemove: () => setState(() => _insumos.removeAt(idx)),
-                      );
-                    }),
-                    TextButton.icon(
-                      onPressed: () {
-                        if (state.insumos.isEmpty) return;
-                        setState(() => _insumos.add(MapEntry(state.insumos.first.id, 1)));
-                      },
-                      icon: const Icon(Icons.add, size: 16),
-                      label: const Text('Agregar insumo'),
-                    ),
-                  ],
+              ..._productosC.asMap().entries.map((e) {
+                final idx = e.key;
+                return _ProductoComboRow(
+                  prodId: e.value.key,
+                  qty: e.value.value,
+                  productos: productosDisponibles,
+                  onProdChanged: (v) => setState(
+                      () => _productosC[idx] = MapEntry(v, _productosC[idx].value)),
+                  onQtyChanged: (v) => setState(
+                      () => _productosC[idx] = MapEntry(_productosC[idx].key, v)),
+                  onRemove: () => setState(() => _productosC.removeAt(idx)),
                 );
               }),
-              if (productosDisponibles.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text('Productos',
-                    style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
-                const SizedBox(height: 8),
-                ..._productosC.asMap().entries.map((e) {
-                  final idx = e.key;
-                  return _ProductoComboRow(
-                    prodId: e.value.key,
-                    qty: e.value.value,
-                    productos: productosDisponibles,
-                    onProdChanged: (v) => setState(
-                        () => _productosC[idx] = MapEntry(v, _productosC[idx].value)),
-                    onQtyChanged: (v) => setState(
-                        () => _productosC[idx] = MapEntry(_productosC[idx].key, v)),
-                    onRemove: () => setState(() => _productosC.removeAt(idx)),
-                  );
-                }),
-                TextButton.icon(
-                  onPressed: () => setState(() => _productosC.add(
-                      MapEntry(productosDisponibles.first.id, 1))),
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Agregar producto'),
-                ),
-              ],
+              TextButton.icon(
+                onPressed: () => setState(() => _productosC.add(
+                    MapEntry(productosDisponibles.first.id, 1))),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Agregar producto'),
+              ),
             ],
           ],
         ),

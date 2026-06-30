@@ -282,6 +282,7 @@ class Producto {
   TamanoBebida? tamanoBebida; // solo relevante para Cafetería
   Map<String, int> insumosConsumidos; // insumoId → qty
   Map<String, int> productosConsumidos; // productoId → qty
+  bool activo;
 
   Producto({
     required this.id,
@@ -291,6 +292,7 @@ class Producto {
     this.tamanoBebida,
     Map<String, int>? insumosConsumidos,
     Map<String, int>? productosConsumidos,
+    this.activo = true,
   })  : insumosConsumidos = insumosConsumidos ?? {},
         productosConsumidos = productosConsumidos ?? {};
 
@@ -306,6 +308,7 @@ class Producto {
         if (tamanoBebida != null) 'tamanoBebida': tamanoBebida!.index,
         if (insumosConsumidos.isNotEmpty) 'insumosConsumidos': insumosConsumidos,
         if (productosConsumidos.isNotEmpty) 'productosConsumidos': productosConsumidos,
+        'activo': activo,
       };
 
   factory Producto.fromJson(Map<String, dynamic> j) {
@@ -333,6 +336,7 @@ class Producto {
       tamanoBebida: j['tamanoBebida'] != null ? TamanoBebida.values[j['tamanoBebida']] : null,
       insumosConsumidos: insumos,
       productosConsumidos: productos,
+      activo: j['activo'] as bool? ?? true,
     );
   }
 }

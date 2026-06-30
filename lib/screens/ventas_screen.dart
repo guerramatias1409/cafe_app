@@ -400,17 +400,17 @@ class _SelectorPanelState extends State<_SelectorPanel> {
         .toList();
 
     final cafeteriaRows = state.productos
-        .where((p) => p.categoria == CategoriaProducto.cafeteria)
+        .where((p) => p.activo && p.categoria == CategoriaProducto.cafeteria)
         .map((p) => _buildRow(p.id, p.displayNombre, p.precio))
         .toList();
 
     final dulcesRows = state.productos
-        .where((p) => p.categoria == CategoriaProducto.deliciasDulces)
+        .where((p) => p.activo && p.categoria == CategoriaProducto.deliciasDulces)
         .map((p) => _buildRow(p.id, p.nombre, p.precio))
         .toList();
 
     final saladosRows = state.productos
-        .where((p) => p.categoria == CategoriaProducto.salados)
+        .where((p) => p.activo && p.categoria == CategoriaProducto.salados)
         .map((p) => _buildRow(p.id, p.nombre, p.precio))
         .toList();
 

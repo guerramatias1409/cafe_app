@@ -455,6 +455,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void toggleProductoActivo(String id) {
+    final p = productos.firstWhere((p) => p.id == id);
+    p.activo = !p.activo;
+    _saveProductosToDb();
+    notifyListeners();
+  }
+
   void eliminarProducto(String id) {
     productos.removeWhere((p) => p.id == id);
     stockInicialProductos.remove(id);
