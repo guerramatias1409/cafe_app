@@ -43,7 +43,6 @@ class _PrintDialogState extends State<PrintDialog> {
   @override
   void initState() {
     super.initState();
-    // Desde historial arrancamos directo con el flujo de impresión
     if (!widget.showSuccessBanner) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _onImprimir());
     }

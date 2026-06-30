@@ -38,6 +38,12 @@ class AppState extends ChangeNotifier {
   // key: "i_${insumo.index}" para insumos, "p_${id}" para productos
   Map<String, int> preciosCompra = {};
 
+  // ── Extras del pedido (nombres de insumos a mostrar en el resumen de venta)
+  List<String> extrasPedido = [];
+
+  // ── Ajustes de stock
+  List<StockAjuste> stockAjustes = [];
+
   // ── Firestore
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -203,6 +209,18 @@ class AppState extends ChangeNotifier {
       preciosCompra = m.map((k, v) => MapEntry(k, (v as num).toInt()));
     }
 
+    final extrasDoc = await _db.collection('config').doc('extras_pedido').get();
+    if (extrasDoc.exists) {
+      extrasPedido = List<String>.from(extrasDoc.data()?['items'] as List? ?? []);
+    }
+
+    final ajustesSnap = await _db.collection('stock_ajustes').get();
+    stockAjustes = ajustesSnap.docs
+        .map((d) => StockAjuste.fromJson(Map<String, dynamic>.from(d.data())))
+        .toList();
+    stockAjustes.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    _recalcularInicialDesdeAjustes();
+
     // Ventas
     final ventasSnap = await _db.collection('ventas').get();
     ventas = ventasSnap.docs
@@ -316,6 +334,17 @@ class AppState extends ChangeNotifier {
       _db.collection('config').doc('productos').set({
         'items': productos.map((p) => p.toJson()).toList(),
       });
+
+  void _recalcularInicialDesdeAjustes() {
+    // Resetear ajustes
+    for (final entry in stock.values) {
+      entry.ajuste = 0;
+    }
+    for (final a in stockAjustes) {
+      stock.putIfAbsent(a.insumoId, () => StockEntry(insumoId: a.insumoId, inicial: 0));
+      stock[a.insumoId]!.ajuste += a.cantidad;
+    }
+  }
 
   void _sortInsumos()  => insumos.sort((a, b) => a.nombre.compareTo(b.nombre));
   void _sortCombos()   => combos.sort((a, b) => a.nombre.compareTo(b.nombre));
@@ -828,5 +857,66 @@ class AppState extends ChangeNotifier {
         });
       }
     }
+  }
+
+  // ── Extras del pedido ──────────────────────────────────────────────────────
+
+  void agregarExtraPedido(String nombre) {
+    extrasPedido.add(nombre);
+    _saveExtrasPedidoToDb();
+    notifyListeners();
+  }
+
+  void editarExtraPedido(int idx, String nombre) {
+    extrasPedido[idx] = nombre;
+    _saveExtrasPedidoToDb();
+    notifyListeners();
+  }
+
+  void eliminarExtraPedido(int idx) {
+    extrasPedido.removeAt(idx);
+    _saveExtrasPedidoToDb();
+    notifyListeners();
+  }
+
+  void _saveExtrasPedidoToDb() {
+    _db.collection('config').doc('extras_pedido').set({'items': extrasPedido});
+  }
+
+  // ── Ajustes de stock ───────────────────────────────────────────────────────
+
+  List<StockAjuste> ajustesParaInsumo(String insumoId) =>
+      stockAjustes.where((a) => a.insumoId == insumoId).toList();
+
+  Future<void> agregarStockAjuste(
+      String insumoId, int cantidad, String descripcion) async {
+    final ajuste = StockAjuste(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      insumoId: insumoId,
+      cantidad: cantidad,
+      descripcion: descripcion,
+      timestamp: DateTime.now(),
+    );
+    await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
+    stockAjustes.insert(0, ajuste);
+    stock.putIfAbsent(insumoId, () => StockEntry(insumoId: insumoId, inicial: 0));
+    stock[insumoId]!.ajuste += cantidad;
+    notifyListeners();
+  }
+
+  Future<void> eliminarStockAjuste(String ajusteId) async {
+    final ajuste = stockAjustes.firstWhere((a) => a.id == ajusteId);
+    await _db.collection('stock_ajustes').doc(ajusteId).delete();
+    stockAjustes.removeWhere((a) => a.id == ajusteId);
+    stock[ajuste.insumoId]?.ajuste -= ajuste.cantidad;
+    notifyListeners();
+  }
+
+  void descontarExtrasStock(Map<String, int> extras) {
+    extras.forEach((insumoId, qty) {
+      stock[insumoId]?.vendidos += qty;
+    });
+    _saveStockToDb();
+    notifyListeners();
   }
 }

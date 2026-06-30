@@ -40,7 +40,7 @@ class _VentasScreenState extends State<VentasScreen> {
         _propinaMedioPago = MedioPago.efectivo;
       });
 
-  void _confirmarVenta(AppState state) {
+  void _confirmarVenta(AppState state, Map<String, int> extras) {
     if (_carrito.isEmpty) return;
     state.registrarVenta(
       items: List.from(_carrito),
@@ -48,6 +48,7 @@ class _VentasScreenState extends State<VentasScreen> {
       propina: _propina,
       propinaMedioPago: _propinaMedioPago,
     );
+    if (extras.isNotEmpty) state.descontarExtrasStock(extras);
     final ventaRegistrada = state.ventas.last;
     _limpiarCarrito();
     showDialog(
@@ -84,7 +85,7 @@ class _VentasScreenState extends State<VentasScreen> {
               onMedioPago: (m) => setState(() => _medioPago = m),
               onPropina: (v) => setState(() => _propina = v),
               onPropinaMedioPago: (m) => setState(() => _propinaMedioPago = m),
-              onConfirmar: () => _confirmarVenta(state),
+              onConfirmar: (extras) => _confirmarVenta(state, extras),
               onCancelar: _limpiarCarrito,
               state: state,
             ),
@@ -111,7 +112,7 @@ class _VentasScreenState extends State<VentasScreen> {
               onMedioPago: (m) => setState(() => _medioPago = m),
               onPropina: (v) => setState(() => _propina = v),
               onPropinaMedioPago: (m) => setState(() => _propinaMedioPago = m),
-              onConfirmar: () => _confirmarVenta(state),
+              onConfirmar: (extras) => _confirmarVenta(state, extras),
               onCancelar: _limpiarCarrito,
               state: state,
             ),
@@ -478,7 +479,7 @@ class _SelectorPanelState extends State<_SelectorPanel> {
 // PANEL CARRITO
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _CarritoPanel extends StatelessWidget {
+class _CarritoPanel extends StatefulWidget {
   final List<ItemCarrito> carrito;
   final MedioPago medioPago;
   final int total;
@@ -488,7 +489,7 @@ class _CarritoPanel extends StatelessWidget {
   final ValueChanged<MedioPago> onMedioPago;
   final ValueChanged<int> onPropina;
   final ValueChanged<MedioPago> onPropinaMedioPago;
-  final VoidCallback onConfirmar;
+  final ValueChanged<Map<String, int>> onConfirmar;
   final VoidCallback onCancelar;
   final AppState state;
 
@@ -506,6 +507,33 @@ class _CarritoPanel extends StatelessWidget {
     required this.onCancelar,
     required this.state,
   });
+
+  @override
+  State<_CarritoPanel> createState() => _CarritoPanelState();
+}
+
+class _CarritoPanelState extends State<_CarritoPanel> {
+  late List<int> _cantExtras;
+
+  @override
+  void initState() {
+    super.initState();
+    _cantExtras = List.filled(widget.state.extrasPedido.length, 0);
+  }
+
+  @override
+  void didUpdateWidget(_CarritoPanel old) {
+    super.didUpdateWidget(old);
+    // Si cambia la lista de extras, ajustar el tamaño
+    final n = widget.state.extrasPedido.length;
+    if (_cantExtras.length != n) {
+      _cantExtras = List.filled(n, 0);
+    }
+    // Resetear cantidades al vaciar el carrito
+    if (old.carrito.isNotEmpty && widget.carrito.isEmpty) {
+      _cantExtras = List.filled(n, 0);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -526,7 +554,7 @@ class _CarritoPanel extends StatelessWidget {
             children: [
               const SectionHeader('Pedido'),
               const SizedBox(width: 8),
-              if (carrito.isNotEmpty)
+              if (widget.carrito.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 7, vertical: 2),
@@ -534,7 +562,7 @@ class _CarritoPanel extends StatelessWidget {
                     color: AppTheme.caramel,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text('${carrito.length}',
+                  child: Text('${widget.carrito.length}',
                       style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -549,7 +577,7 @@ class _CarritoPanel extends StatelessWidget {
           padding: isLandscape
               ? const EdgeInsets.symmetric(horizontal: 20)
               : EdgeInsets.zero,
-          child: carrito.isEmpty
+          child: widget.carrito.isEmpty
               ? Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 20),
@@ -570,19 +598,63 @@ class _CarritoPanel extends StatelessWidget {
                   ),
                 )
               : Column(
-                  children: carrito
+                  children: widget.carrito
                       .asMap()
                       .entries
                       .map((e) => _ItemCarritoRow(
                             item: e.value,
-                            onQuitar: () => onQuitarItem(e.key),
+                            onQuitar: () => widget.onQuitarItem(e.key),
                           ))
                       .toList(),
                 ),
         ),
 
-        if (carrito.isNotEmpty) ...[
+        if (widget.carrito.isNotEmpty) ...[
           const SizedBox(height: 20),
+
+          // Extras del pedido
+          if (widget.state.extrasPedido.isNotEmpty)
+            Padding(
+              padding: isLandscape
+                  ? const EdgeInsets.symmetric(horizontal: 20)
+                  : EdgeInsets.zero,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader('Extras'),
+                  const SizedBox(height: 8),
+                  ...widget.state.extrasPedido.asMap().entries.map((e) {
+                    final idx = e.key;
+                    final insumoId = e.value;
+                    final nombre = widget.state.insumos
+                        .firstWhere((i) => i.id == insumoId,
+                            orElse: () => InsumoModel(id: insumoId, nombre: insumoId))
+                        .nombre;
+                    final cant = _cantExtras.length > idx ? _cantExtras[idx] : 0;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(nombre,
+                                style: const TextStyle(
+                                    fontSize: 14, color: AppTheme.brownDark)),
+                          ),
+                          _CounterButton(
+                            count: cant,
+                            onDecrement: cant > 0
+                                ? () => setState(() => _cantExtras[idx]--)
+                                : null,
+                            onIncrement: () => setState(() => _cantExtras[idx]++),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 4),
+                ],
+              ),
+            ),
 
           // Medio de pago
           Padding(
@@ -594,7 +666,7 @@ class _CarritoPanel extends StatelessWidget {
               children: [
                 const SectionHeader('Medio de pago'),
                 _MedioPagoSelector(
-                    selected: medioPago, onSelected: onMedioPago),
+                    selected: widget.medioPago, onSelected: widget.onMedioPago),
               ],
             ),
           ),
@@ -607,10 +679,10 @@ class _CarritoPanel extends StatelessWidget {
                 ? const EdgeInsets.symmetric(horizontal: 20)
                 : EdgeInsets.zero,
             child: _PropinaSection(
-              propina: propina,
-              medioPago: propinaMedioPago,
-              onPropina: onPropina,
-              onMedioPago: onPropinaMedioPago,
+              propina: widget.propina,
+              medioPago: widget.propinaMedioPago,
+              onPropina: widget.onPropina,
+              onMedioPago: widget.onPropinaMedioPago,
             ),
           ),
 
@@ -630,13 +702,13 @@ class _CarritoPanel extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  if (propina > 0) ...[
+                  if (widget.propina > 0) ...[
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Subtotal',
                             style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
-                        Text(_moneda.format(total),
+                        Text(_moneda.format(widget.total),
                             style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
                       ],
                     ),
@@ -644,9 +716,9 @@ class _CarritoPanel extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Propina  ${propinaMedioPago.emoji}',
+                        Text('Propina  ${widget.propinaMedioPago.emoji}',
                             style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
-                        Text(_moneda.format(propina),
+                        Text(_moneda.format(widget.propina),
                             style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
                       ],
                     ),
@@ -659,7 +731,7 @@ class _CarritoPanel extends StatelessWidget {
                           style: TextStyle(
                               fontSize: 14, color: AppTheme.brownMed)),
                       Text(
-                        _moneda.format(total + propina),
+                        _moneda.format(widget.total + widget.propina),
                         style: const TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.w800,
@@ -673,7 +745,7 @@ class _CarritoPanel extends StatelessWidget {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: onCancelar,
+                          onPressed: widget.onCancelar,
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.grey600,
                             side: const BorderSide(
@@ -690,7 +762,15 @@ class _CarritoPanel extends StatelessWidget {
                       Expanded(
                         flex: 2,
                         child: ElevatedButton(
-                          onPressed: onConfirmar,
+                          onPressed: () {
+                            final extras = <String, int>{};
+                            final ids = widget.state.extrasPedido;
+                            for (var i = 0; i < ids.length; i++) {
+                              final cant = _cantExtras.length > i ? _cantExtras[i] : 0;
+                              if (cant > 0) extras[ids[i]] = cant;
+                            }
+                            widget.onConfirmar(extras);
+                          },
                           child: const Text('Confirmar venta'),
                         ),
                       ),
@@ -1001,6 +1081,68 @@ class _VentaRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _CounterButton extends StatelessWidget {
+  final int count;
+  final VoidCallback? onDecrement;
+  final VoidCallback onIncrement;
+
+  const _CounterButton({
+    required this.count,
+    required this.onDecrement,
+    required this.onIncrement,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: onDecrement,
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: onDecrement != null ? AppTheme.cream : AppTheme.grey100,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: onDecrement != null ? AppTheme.caramel : AppTheme.grey300,
+              ),
+            ),
+            child: Icon(Icons.remove,
+                size: 16,
+                color: onDecrement != null ? AppTheme.brownDark : AppTheme.grey300),
+          ),
+        ),
+        SizedBox(
+          width: 36,
+          child: Text(
+            '$count',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.brownDark),
+          ),
+        ),
+        GestureDetector(
+          onTap: onIncrement,
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: AppTheme.cream,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.caramel),
+            ),
+            child: const Icon(Icons.add, size: 16, color: AppTheme.brownDark),
+          ),
+        ),
+      ],
     );
   }
 }

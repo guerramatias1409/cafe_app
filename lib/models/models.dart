@@ -458,10 +458,11 @@ class StockEntry {
   final String insumoId;
   int inicial;
   int vendidos;
+  int ajuste; // suma de StockAjuste.cantidad, no persiste en Firestore
 
-  StockEntry({required this.insumoId, required this.inicial, this.vendidos = 0});
+  StockEntry({required this.insumoId, required this.inicial, this.vendidos = 0, this.ajuste = 0});
 
-  int get actual => inicial - vendidos;
+  int get actual => inicial + ajuste - vendidos;
 
   Map<String, dynamic> toJson() => {
         'insumoId': insumoId,
@@ -481,4 +482,38 @@ class StockEntry {
       vendidos: j['vendidos'],
     );
   }
+}
+
+// ─── Ajuste de stock ──────────────────────────────────────────────────────────
+
+class StockAjuste {
+  final String id;
+  final String insumoId;
+  final int cantidad; // positivo = agrega, negativo = resta
+  final String descripcion;
+  final DateTime timestamp;
+
+  StockAjuste({
+    required this.id,
+    required this.insumoId,
+    required this.cantidad,
+    required this.descripcion,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'insumoId': insumoId,
+        'cantidad': cantidad,
+        'descripcion': descripcion,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  factory StockAjuste.fromJson(Map<String, dynamic> j) => StockAjuste(
+        id: j['id'],
+        insumoId: j['insumoId'],
+        cantidad: (j['cantidad'] as num).toInt(),
+        descripcion: j['descripcion'] ?? '',
+        timestamp: DateTime.parse(j['timestamp']),
+      );
 }

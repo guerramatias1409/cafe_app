@@ -64,6 +64,17 @@ class ConfigScreen extends StatelessWidget {
 
           const SizedBox(height: 40),
 
+          // ── Extras del pedido ───────────────────────────────────────────────
+          const SectionHeader('Extras del pedido'),
+          const SizedBox(height: 4),
+          const Text(
+            'Aparecen en el resumen de cada venta para que el barista indique cantidades.',
+            style: TextStyle(fontSize: 12, color: AppTheme.grey600),
+          ),
+          const SizedBox(height: 8),
+          _ExtrasPedidoList(state: state),
+          const SizedBox(height: 40),
+
           // ── Backup de datos ─────────────────────────────────────────────────
           const SectionHeader('Datos'),
           const SizedBox(height: 8),
@@ -1377,6 +1388,118 @@ class _InsumoListTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Extras del pedido ────────────────────────────────────────────────────────
+
+class _ExtrasPedidoList extends StatelessWidget {
+  const _ExtrasPedidoList({required this.state});
+  final AppState state;
+
+  void _showAgregarDialog(BuildContext context) {
+    // Insumos que aún no están en extras
+    final disponibles = state.insumos
+        .where((i) => !state.extrasPedido.contains(i.id))
+        .toList();
+    if (disponibles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Todos los insumos ya están agregados como extras.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    String selectedId = disponibles.first.id;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => AlertDialog(
+          title: const Text('Agregar extra'),
+          content: DropdownButtonFormField<String>(
+            value: selectedId,
+            decoration: InputDecoration(
+              labelText: 'Insumo',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            ),
+            items: disponibles
+                .map((i) => DropdownMenuItem(value: i.id, child: Text(i.nombre)))
+                .toList(),
+            onChanged: (v) => setModal(() => selectedId = v!),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () {
+                state.agregarExtraPedido(selectedId);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Agregar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _nombreInsumo(String id) =>
+      state.insumos.firstWhere((i) => i.id == id,
+          orElse: () => InsumoModel(id: id, nombre: id)).nombre;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (state.extrasPedido.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('No hay extras configurados.',
+                style: TextStyle(color: AppTheme.grey600, fontSize: 13)),
+          ),
+        ...state.extrasPedido.asMap().entries.map((e) {
+          final idx = e.key;
+          final nombre = _nombreInsumo(e.value);
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.grey300),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(nombre,
+                      style: const TextStyle(fontWeight: FontWeight.w500)),
+                ),
+                GestureDetector(
+                  onTap: () => state.eliminarExtraPedido(idx),
+                  child: const Icon(Icons.delete_outline,
+                      size: 18, color: AppTheme.red),
+                ),
+              ],
+            ),
+          );
+        }),
+        OutlinedButton.icon(
+          onPressed: () => _showAgregarDialog(context),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Agregar extra'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppTheme.brownMed,
+            side: const BorderSide(color: AppTheme.brownMed),
+            minimumSize: const Size.fromHeight(46),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ],
     );
   }
 }

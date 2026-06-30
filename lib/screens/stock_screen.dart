@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../providers/app_state.dart';
@@ -123,37 +124,21 @@ class _StockRow extends StatefulWidget {
 }
 
 class _StockRowState extends State<_StockRow> {
-  late TextEditingController _ctrl;
   late TextEditingController _minCtrl;
+  bool _historialAbierto = false;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = TextEditingController(text: widget.entry.inicial.toString());
     _minCtrl = TextEditingController(
       text: (widget.state.stockMinimoInsumos[widget.insumo.id] ?? 0).toString(),
     );
   }
 
   @override
-  void didUpdateWidget(_StockRow old) {
-    super.didUpdateWidget(old);
-    if (old.entry.inicial != widget.entry.inicial) {
-      _ctrl.text = widget.entry.inicial.toString();
-    }
-  }
-
-  @override
   void dispose() {
-    _ctrl.dispose();
     _minCtrl.dispose();
     super.dispose();
-  }
-
-  void _saveInicial() {
-    final val = int.tryParse(_ctrl.text) ?? 0;
-    widget.state.setStockInicial(widget.insumo.id, val);
-    FocusScope.of(context).unfocus();
   }
 
   void _saveMin() {
@@ -169,6 +154,120 @@ class _StockRowState extends State<_StockRow> {
     return AppTheme.green;
   }
 
+  void _mostrarDialogoAjuste() {
+    final cantCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    bool esSuma = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => AlertDialog(
+          title: Text('Ajustar stock · ${widget.insumo.nombre}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Tipo: suma o resta
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setModal(() => esSuma = true),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 120),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: esSuma ? AppTheme.cream : AppTheme.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: esSuma ? AppTheme.caramel : AppTheme.grey300,
+                            width: esSuma ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add, size: 16, color: esSuma ? AppTheme.brownMed : AppTheme.grey600),
+                            const SizedBox(width: 4),
+                            Text('Agregar', style: TextStyle(
+                              fontSize: 13, fontWeight: esSuma ? FontWeight.w600 : FontWeight.w400,
+                              color: esSuma ? AppTheme.brownMed : AppTheme.grey600,
+                            )),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setModal(() => esSuma = false),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 120),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: !esSuma ? const Color(0xFFFFF0F0) : AppTheme.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: !esSuma ? AppTheme.red : AppTheme.grey300,
+                            width: !esSuma ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.remove, size: 16, color: !esSuma ? AppTheme.red : AppTheme.grey600),
+                            const SizedBox(width: 4),
+                            Text('Restar', style: TextStyle(
+                              fontSize: 13, fontWeight: !esSuma ? FontWeight.w600 : FontWeight.w400,
+                              color: !esSuma ? AppTheme.red : AppTheme.grey600,
+                            )),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: cantCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Cantidad'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(labelText: 'Descripción'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () {
+                final cant = int.tryParse(cantCtrl.text) ?? 0;
+                if (cant == 0) return;
+                final desc = descCtrl.text.trim();
+                widget.state.agregarStockAjuste(
+                  widget.insumo.id,
+                  esSuma ? cant : -cant,
+                  desc,
+                );
+                Navigator.pop(ctx);
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
@@ -178,9 +277,10 @@ class _StockRowState extends State<_StockRow> {
         : bajominimo
             ? Colors.orange
             : _stockColor(entry.actual, entry.inicial);
+    final ajustes = widget.state.ajustesParaInsumo(widget.insumo.id);
+    final fmt = DateFormat('dd/MM HH:mm');
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: bajominimo ? const Color(0xFFFFF8E1) : AppTheme.white,
         borderRadius: BorderRadius.circular(12),
@@ -192,67 +292,172 @@ class _StockRowState extends State<_StockRow> {
                   : AppTheme.grey300),
         ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            flex: 3,
+          // Fila principal
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                if (bajominimo) ...[
-                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
-                  const SizedBox(width: 4),
-                ],
+                // Nombre + alerta
                 Expanded(
-                  child: Text(
-                    widget.insumo.nombre,
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.brownDark),
+                  flex: 3,
+                  child: Row(
+                    children: [
+                      if (bajominimo) ...[
+                        const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 16),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Text(
+                          widget.insumo.nombre,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppTheme.brownDark),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: _MiniField(
-              controller: _ctrl,
-              label: 'Inicial',
-              color: AppTheme.blue,
-              onFocusLost: _saveInicial,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            flex: 2,
-            child: _MiniField(
-              controller: _minCtrl,
-              label: 'Mínimo',
-              color: Colors.orange.shade700,
-              onFocusLost: _saveMin,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 1,
-            child: Column(
-              children: [
-                Text('${entry.vendidos}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.grey600)),
-                const Text('vend.', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            flex: 1,
-            child: Column(
-              children: [
-                Text(
-                  '${entry.actual}',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: stockColor),
+                // Inicial (solo lectura)
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      Text('${entry.inicial}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.blue)),
+                      const Text('inicial', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                    ],
+                  ),
                 ),
-                const Text('quedan', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                const SizedBox(width: 4),
+                // Ajuste (solo lectura)
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      Text(
+                        entry.ajuste >= 0 ? '+${entry.ajuste}' : '${entry.ajuste}',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: entry.ajuste > 0 ? AppTheme.green : entry.ajuste < 0 ? AppTheme.red : AppTheme.grey600,
+                        ),
+                      ),
+                      const Text('ajuste', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                // Mínimo
+                Expanded(
+                  flex: 2,
+                  child: _MiniField(
+                    controller: _minCtrl,
+                    label: 'Mínimo',
+                    color: Colors.orange.shade700,
+                    onFocusLost: _saveMin,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Vendidos
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      Text('${entry.vendidos}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.grey600)),
+                      const Text('vend.', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                // Quedan
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    children: [
+                      Text(
+                        '${entry.actual}',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: stockColor),
+                      ),
+                      const Text('quedan', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Botón ajustar
+                GestureDetector(
+                  onTap: _mostrarDialogoAjuste,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.cream,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.caramel.withOpacity(0.5)),
+                    ),
+                    child: const Text('Ajustar',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.brownMed)),
+                  ),
+                ),
+                // Historial toggle
+                if (ajustes.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => setState(() => _historialAbierto = !_historialAbierto),
+                    child: AnimatedRotation(
+                      turns: _historialAbierto ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: const Icon(Icons.keyboard_arrow_down, size: 20, color: AppTheme.grey600),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
+
+          // Historial de ajustes
+          if (_historialAbierto && ajustes.isNotEmpty) ...[
+            const Divider(height: 1, color: AppTheme.grey300),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+              child: Column(
+                children: ajustes.map((a) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: a.cantidad >= 0 ? AppTheme.green.withOpacity(0.1) : AppTheme.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${a.cantidad >= 0 ? '+' : ''}${a.cantidad}',
+                          style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w700,
+                            color: a.cantidad >= 0 ? AppTheme.green : AppTheme.red,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          a.descripcion.isEmpty ? '—' : a.descripcion,
+                          style: const TextStyle(fontSize: 12, color: AppTheme.brownDark),
+                        ),
+                      ),
+                      Text(
+                        fmt.format(a.timestamp),
+                        style: const TextStyle(fontSize: 11, color: AppTheme.grey600),
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: () => widget.state.eliminarStockAjuste(a.id),
+                        child: const Icon(Icons.delete_outline, size: 14, color: AppTheme.red),
+                      ),
+                    ],
+                  ),
+                )).toList(),
+              ),
+            ),
+          ],
         ],
       ),
     );
