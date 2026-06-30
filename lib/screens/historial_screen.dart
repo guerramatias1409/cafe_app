@@ -67,11 +67,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
                       state: state,
                       onEliminar: (v) => _confirmarEliminar(context, state, v),
                     ))
-              : _ReporteProductos(
-                    ventas: state.ventas,
-                    combos: state.combos,
-                    productos: state.productos,
-                  ),
+              : _ReporteProductos(ventas: state.ventas),
         ),
       ],
     );
@@ -797,13 +793,7 @@ class _TabChip extends StatelessWidget {
 
 class _ReporteProductos extends StatefulWidget {
   final List<Venta> ventas;
-  final List<Combo> combos;
-  final List<Producto> productos;
-  const _ReporteProductos({
-    required this.ventas,
-    required this.combos,
-    required this.productos,
-  });
+  const _ReporteProductos({required this.ventas});
 
   @override
   State<_ReporteProductos> createState() => _ReporteProductosState();
@@ -836,53 +826,20 @@ class _ReporteProductosState extends State<_ReporteProductos> {
     }).toList();
   }
 
-  // Suma cantidad a un producto por id+nombre, creando la entrada si no existe
-  void _sumar(Map<String, _ProductoStats> map, String id, String nombre, int cantidad) {
-    final entry = map.putIfAbsent(id, () => _ProductoStats(nombre: nombre));
-    entry.cantidad += cantidad;
-  }
-
   Map<String, _ProductoStats> get _stats {
     final map = <String, _ProductoStats>{};
 
-    // Índices rápidos para lookup
-    final comboIdx = {for (final c in widget.combos) c.id: c};
-    final prodIdx  = {for (final p in widget.productos) p.id: p};
-
     for (final venta in _ventasFiltradas) {
       for (final item in venta.items) {
-        // 1. El ítem vendido directamente
         final entry = map.putIfAbsent(
           item.comboId,
           () => _ProductoStats(nombre: item.comboNombre),
         );
         entry.cantidad += item.cantidad;
         entry.total += item.precioTotal;
-
-        // 2. Productos componentes del combo
-        final combo = comboIdx[item.comboId];
-        if (combo != null) {
-          combo.productosConsumidos.forEach((prodId, qty) {
-            final prod = prodIdx[prodId];
-            if (prod != null) {
-              _sumar(map, prodId, prod.nombre, qty * item.cantidad);
-            }
-          });
-        }
-
-        // 3. Productos componentes de un producto
-        final prod = prodIdx[item.comboId];
-        if (prod != null) {
-          prod.productosConsumidos.forEach((prodId, qty) {
-            final sub = prodIdx[prodId];
-            if (sub != null) {
-              _sumar(map, prodId, sub.nombre, qty * item.cantidad);
-            }
-          });
-        }
       }
     }
-    // Ordenar por cantidad desc
+
     final sorted = map.entries.toList()
       ..sort((a, b) => b.value.cantidad.compareTo(a.value.cantidad));
     return Map.fromEntries(sorted);
