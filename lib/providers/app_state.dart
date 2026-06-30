@@ -147,6 +147,7 @@ class AppState extends ChangeNotifier {
       final list = insumosDoc.data()?['items'] as List? ?? [];
       if (list.isNotEmpty) {
         insumos = list.map((j) => InsumoModel.fromJson(Map<String, dynamic>.from(j as Map))).toList();
+        _sortInsumos();
       }
     }
     _ensureStockEntries();
@@ -161,6 +162,7 @@ class AppState extends ChangeNotifier {
     } else {
       combos = kDefaultCombos();
     }
+    _sortCombos();
 
     // Productos
     final productosDoc = await _db.collection('config').doc('productos').get();
@@ -170,6 +172,7 @@ class AppState extends ChangeNotifier {
           .map((j) => Producto.fromJson(Map<String, dynamic>.from(j as Map)))
           .toList();
     }
+    _sortProductos();
 
     // Stock
     final stockDoc = await _db.collection('config').doc('stock').get();
@@ -314,6 +317,10 @@ class AppState extends ChangeNotifier {
         'items': productos.map((p) => p.toJson()).toList(),
       });
 
+  void _sortInsumos()  => insumos.sort((a, b) => a.nombre.compareTo(b.nombre));
+  void _sortCombos()   => combos.sort((a, b) => a.nombre.compareTo(b.nombre));
+  void _sortProductos() => productos.sort((a, b) => a.nombre.compareTo(b.nombre));
+
   void _ensureStockEntries() {
     for (final insumo in insumos) {
       stock.putIfAbsent(insumo.id, () => StockEntry(insumoId: insumo.id, inicial: 0));
@@ -364,6 +371,7 @@ class AppState extends ChangeNotifier {
       insumos: insumos,
       productosConsumidos: productosConsumidos,
     ));
+    _sortCombos();
     _saveCombosToDb();
     notifyListeners();
   }
@@ -378,6 +386,7 @@ class AppState extends ChangeNotifier {
     if (precio != null) c.precioFijo = precio;
     if (insumos != null) c.insumos = insumos;
     if (productosConsumidos != null) c.productosConsumidos = productosConsumidos;
+    _sortCombos();
     _saveCombosToDb();
     notifyListeners();
   }
@@ -418,6 +427,7 @@ class AppState extends ChangeNotifier {
       insumosConsumidos: insumosConsumidos,
       productosConsumidos: productosConsumidos,
     ));
+    _sortProductos();
     _saveProductosToDb();
     notifyListeners();
   }
@@ -440,6 +450,7 @@ class AppState extends ChangeNotifier {
       p.insumosConsumidos = insumosConsumidos ?? {};
       p.productosConsumidos = productosConsumidos ?? {};
     }
+    _sortProductos();
     _saveProductosToDb();
     notifyListeners();
   }
@@ -601,6 +612,7 @@ class AppState extends ChangeNotifier {
     final id = '${nombre.toLowerCase().replaceAll(RegExp(r'\W+'), '_')}_${DateTime.now().millisecondsSinceEpoch}';
     insumos.add(InsumoModel(id: id, nombre: nombre));
     stock.putIfAbsent(id, () => StockEntry(insumoId: id, inicial: 0));
+    _sortInsumos();
     _saveInsumosToDb();
     _saveStockToDb();
     notifyListeners();
@@ -610,6 +622,7 @@ class AppState extends ChangeNotifier {
     final idx = insumos.indexWhere((i) => i.id == id);
     if (idx == -1) return;
     insumos[idx].nombre = nuevoNombre;
+    _sortInsumos();
     _saveInsumosToDb();
     notifyListeners();
   }
