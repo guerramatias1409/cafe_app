@@ -845,26 +845,32 @@ class _ReporteProductosState extends State<_ReporteProductos> {
     return Map.fromEntries(sorted);
   }
 
-  Future<void> _pickDesde() async {
-    final picked = await showDatePicker(
+  Future<void> _pickRango() async {
+    final picked = await showDateRangePicker(
       context: context,
-      initialDate: _desde ?? DateTime.now(),
       firstDate: DateTime(2024),
       lastDate: DateTime.now(),
+      initialDateRange: (_desde != null && _hasta != null)
+          ? DateTimeRange(start: _desde!, end: _hasta!)
+          : null,
       locale: const Locale('es'),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: Theme.of(context).colorScheme.copyWith(
+            primary: AppTheme.caramel,
+            onPrimary: Colors.white,
+            surface: AppTheme.white,
+          ),
+        ),
+        child: child!,
+      ),
     );
-    if (picked != null) setState(() => _desde = picked);
-  }
-
-  Future<void> _pickHasta() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _hasta ?? DateTime.now(),
-      firstDate: DateTime(2024),
-      lastDate: DateTime.now(),
-      locale: const Locale('es'),
-    );
-    if (picked != null) setState(() => _hasta = picked);
+    if (picked != null) {
+      setState(() {
+        _desde = picked.start;
+        _hasta = picked.end;
+      });
+    }
   }
 
   @override
@@ -881,20 +887,12 @@ class _ReporteProductosState extends State<_ReporteProductos> {
           color: AppTheme.white,
           child: Row(
             children: [
-              const Text('Desde', style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
-              const SizedBox(width: 8),
               _DateButton(
-                label: _desde != null ? _fmtFecha.format(_desde!) : 'cualquier fecha',
-                onTap: _pickDesde,
+                label: _desde != null && _hasta != null
+                    ? '${_fmtFecha.format(_desde!)} – ${_fmtFecha.format(_hasta!)}'
+                    : 'Filtrar por fecha',
+                onTap: _pickRango,
                 active: _desde != null,
-              ),
-              const SizedBox(width: 8),
-              const Text('hasta', style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
-              const SizedBox(width: 8),
-              _DateButton(
-                label: _hasta != null ? _fmtFecha.format(_hasta!) : 'hoy',
-                onTap: _pickHasta,
-                active: _hasta != null,
               ),
               if (_desde != null || _hasta != null) ...[
                 const SizedBox(width: 8),
