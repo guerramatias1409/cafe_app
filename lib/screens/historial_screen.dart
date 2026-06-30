@@ -802,8 +802,16 @@ class _ReporteProductos extends StatefulWidget {
 class _ReporteProductosState extends State<_ReporteProductos> {
   DateTime? _desde;
   DateTime? _hasta;
+  final _searchCtrl = TextEditingController();
+  String _query = '';
 
   static final _fmtFecha = DateFormat('dd/MM/yyyy');
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   /// Convierte un timestamp a hora de Argentina (UTC-3, sin DST).
   static DateTime _arDate(DateTime dt) {
@@ -842,7 +850,12 @@ class _ReporteProductosState extends State<_ReporteProductos> {
 
     final sorted = map.entries.toList()
       ..sort((a, b) => b.value.cantidad.compareTo(a.value.cantidad));
-    return Map.fromEntries(sorted);
+
+    if (_query.isEmpty) return Map.fromEntries(sorted);
+    final q = _query.toLowerCase();
+    return Map.fromEntries(
+      sorted.where((e) => e.value.nombre.toLowerCase().contains(q)),
+    );
   }
 
   Future<void> _pickRango() async {
@@ -883,24 +896,66 @@ class _ReporteProductosState extends State<_ReporteProductos> {
       children: [
         // Selector de rango
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
           color: AppTheme.white,
-          child: Row(
+          child: Column(
             children: [
-              _DateButton(
-                label: _desde != null && _hasta != null
-                    ? '${_fmtFecha.format(_desde!)} – ${_fmtFecha.format(_hasta!)}'
-                    : 'Filtrar por fecha',
-                onTap: _pickRango,
-                active: _desde != null,
-              ),
-              if (_desde != null || _hasta != null) ...[
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => setState(() { _desde = null; _hasta = null; }),
-                  child: const Icon(Icons.close, size: 18, color: AppTheme.grey600),
+              // Buscador
+              TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _query = v.trim()),
+                textAlignVertical: TextAlignVertical.center,
+                decoration: InputDecoration(
+                  hintText: 'Buscar producto...',
+                  hintStyle: const TextStyle(fontSize: 13, color: AppTheme.grey600),
+                  prefixIcon: const Icon(Icons.search, size: 18, color: AppTheme.grey600),
+                  suffixIcon: _query.isNotEmpty
+                      ? GestureDetector(
+                          onTap: () => setState(() {
+                            _query = '';
+                            _searchCtrl.clear();
+                          }),
+                          child: const Icon(Icons.close, size: 16, color: AppTheme.grey600),
+                        )
+                      : null,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.grey300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.grey300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppTheme.caramel, width: 1.5),
+                  ),
+                  filled: true,
+                  fillColor: AppTheme.grey100,
                 ),
-              ],
+              ),
+              const SizedBox(height: 8),
+              // Selector de rango de fechas
+              Row(
+                children: [
+                  _DateButton(
+                    label: _desde != null && _hasta != null
+                        ? '${_fmtFecha.format(_desde!)} – ${_fmtFecha.format(_hasta!)}'
+                        : 'Filtrar por fecha',
+                    onTap: _pickRango,
+                    active: _desde != null,
+                  ),
+                  if (_desde != null || _hasta != null) ...[
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () => setState(() { _desde = null; _hasta = null; }),
+                      child: const Icon(Icons.close, size: 18, color: AppTheme.grey600),
+                    ),
+                  ],
+                ],
+              ),
             ],
           ),
         ),
