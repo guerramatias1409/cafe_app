@@ -9,8 +9,15 @@ import '../widgets/print_dialog.dart';
 
 final _moneda = NumberFormat.currency(locale: 'es_AR', symbol: '\$', decimalDigits: 0);
 
-class HistorialScreen extends StatelessWidget {
+class HistorialScreen extends StatefulWidget {
   const HistorialScreen({super.key});
+
+  @override
+  State<HistorialScreen> createState() => _HistorialScreenState();
+}
+
+class _HistorialScreenState extends State<HistorialScreen> {
+  int _tab = 0; // 0 = ventas, 1 = reporte
 
   @override
   Widget build(BuildContext context) {
@@ -20,20 +27,23 @@ class HistorialScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Header
+        // Switcher de tabs
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: const BoxDecoration(
             color: AppTheme.white,
             border: Border(bottom: BorderSide(color: AppTheme.grey300)),
           ),
           child: Row(
             children: [
-              Text('${ventas.length} venta${ventas.length != 1 ? "s" : ""}',
-                  style: const TextStyle(fontSize: 14, color: AppTheme.grey600)),
+              _TabChip(label: 'Ventas', selected: _tab == 0,
+                  onTap: () => setState(() => _tab = 0)),
+              const SizedBox(width: 8),
+              _TabChip(label: 'Por producto', selected: _tab == 1,
+                  onTap: () => setState(() => _tab = 1)),
               const Spacer(),
-              if (ventas.isNotEmpty) ...[
+              if (_tab == 0 && ventas.isNotEmpty) ...[
                 const Text('Total ',
                     style: TextStyle(fontSize: 14, color: AppTheme.grey600)),
                 Text(
@@ -49,10 +59,19 @@ class HistorialScreen extends StatelessWidget {
         ),
 
         Expanded(
-          child: ventas.isEmpty
-              ? const _EmptyState()
-              : _VentasList(ventas: ventas, state: state,
-                  onEliminar: (v) => _confirmarEliminar(context, state, v)),
+          child: _tab == 0
+              ? (ventas.isEmpty
+                  ? const _EmptyState()
+                  : _VentasList(
+                      ventas: ventas,
+                      state: state,
+                      onEliminar: (v) => _confirmarEliminar(context, state, v),
+                    ))
+              : _ReporteProductos(
+                    ventas: state.ventas,
+                    combos: state.combos,
+                    productos: state.productos,
+                  ),
         ),
       ],
     );
@@ -653,4 +672,389 @@ class _EmptyState extends StatelessWidget {
           ],
         ),
       );
+}
+
+// ── Tab chip ──────────────────────────────────────────────────────────────────
+
+class _TabChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _TabChip({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? AppTheme.brownDark : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppTheme.brownDark : AppTheme.grey300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : AppTheme.grey600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Reporte por producto ──────────────────────────────────────────────────────
+
+class _ReporteProductos extends StatefulWidget {
+  final List<Venta> ventas;
+  final List<Combo> combos;
+  final List<Producto> productos;
+  const _ReporteProductos({
+    required this.ventas,
+    required this.combos,
+    required this.productos,
+  });
+
+  @override
+  State<_ReporteProductos> createState() => _ReporteProductosState();
+}
+
+class _ReporteProductosState extends State<_ReporteProductos> {
+  DateTime? _desde;
+  DateTime? _hasta;
+
+  static final _fmtFecha = DateFormat('dd/MM/yyyy');
+
+  /// Convierte un timestamp a hora de Argentina (UTC-3, sin DST).
+  static DateTime _arDate(DateTime dt) {
+    final ar = dt.toUtc().subtract(const Duration(hours: 3));
+    return DateTime(ar.year, ar.month, ar.day); // solo la fecha, sin hora
+  }
+
+  List<Venta> get _ventasFiltradas {
+    return widget.ventas.where((v) {
+      final fechaVenta = _arDate(v.timestamp);
+      if (_desde != null) {
+        final desde = DateTime(_desde!.year, _desde!.month, _desde!.day);
+        if (fechaVenta.isBefore(desde)) return false;
+      }
+      if (_hasta != null) {
+        final hasta = DateTime(_hasta!.year, _hasta!.month, _hasta!.day);
+        if (fechaVenta.isAfter(hasta)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  // Suma cantidad a un producto por id+nombre, creando la entrada si no existe
+  void _sumar(Map<String, _ProductoStats> map, String id, String nombre, int cantidad) {
+    final entry = map.putIfAbsent(id, () => _ProductoStats(nombre: nombre));
+    entry.cantidad += cantidad;
+  }
+
+  Map<String, _ProductoStats> get _stats {
+    final map = <String, _ProductoStats>{};
+
+    // Índices rápidos para lookup
+    final comboIdx = {for (final c in widget.combos) c.id: c};
+    final prodIdx  = {for (final p in widget.productos) p.id: p};
+
+    for (final venta in _ventasFiltradas) {
+      for (final item in venta.items) {
+        // 1. El ítem vendido directamente
+        final entry = map.putIfAbsent(
+          item.comboId,
+          () => _ProductoStats(nombre: item.comboNombre),
+        );
+        entry.cantidad += item.cantidad;
+        entry.total += item.precioTotal;
+
+        // 2. Productos componentes del combo
+        final combo = comboIdx[item.comboId];
+        if (combo != null) {
+          combo.productosConsumidos.forEach((prodId, qty) {
+            final prod = prodIdx[prodId];
+            if (prod != null) {
+              _sumar(map, prodId, prod.nombre, qty * item.cantidad);
+            }
+          });
+        }
+
+        // 3. Productos componentes de un producto
+        final prod = prodIdx[item.comboId];
+        if (prod != null) {
+          prod.productosConsumidos.forEach((prodId, qty) {
+            final sub = prodIdx[prodId];
+            if (sub != null) {
+              _sumar(map, prodId, sub.nombre, qty * item.cantidad);
+            }
+          });
+        }
+      }
+    }
+    // Ordenar por cantidad desc
+    final sorted = map.entries.toList()
+      ..sort((a, b) => b.value.cantidad.compareTo(a.value.cantidad));
+    return Map.fromEntries(sorted);
+  }
+
+  Future<void> _pickDesde() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _desde ?? DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+      locale: const Locale('es'),
+    );
+    if (picked != null) setState(() => _desde = picked);
+  }
+
+  Future<void> _pickHasta() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _hasta ?? DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+      locale: const Locale('es'),
+    );
+    if (picked != null) setState(() => _hasta = picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = _stats;
+    final totalUnidades = stats.values.fold(0, (s, e) => s + e.cantidad);
+    final totalRecaudado = stats.values.fold(0, (s, e) => s + e.total);
+
+    return Column(
+      children: [
+        // Selector de rango
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          color: AppTheme.white,
+          child: Row(
+            children: [
+              const Text('Desde', style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
+              const SizedBox(width: 8),
+              _DateButton(
+                label: _desde != null ? _fmtFecha.format(_desde!) : 'cualquier fecha',
+                onTap: _pickDesde,
+                active: _desde != null,
+              ),
+              const SizedBox(width: 8),
+              const Text('hasta', style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
+              const SizedBox(width: 8),
+              _DateButton(
+                label: _hasta != null ? _fmtFecha.format(_hasta!) : 'hoy',
+                onTap: _pickHasta,
+                active: _hasta != null,
+              ),
+              if (_desde != null || _hasta != null) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => setState(() { _desde = null; _hasta = null; }),
+                  child: const Icon(Icons.close, size: 18, color: AppTheme.grey600),
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        // Resumen rápido
+        if (stats.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: const BoxDecoration(
+              color: AppTheme.cream,
+              border: Border(bottom: BorderSide(color: AppTheme.grey300)),
+            ),
+            child: Row(
+              children: [
+                Text('${_ventasFiltradas.length} venta${_ventasFiltradas.length != 1 ? 's' : ''}',
+                    style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
+                const Text(' · ', style: TextStyle(color: AppTheme.grey600)),
+                Text('$totalUnidades unidades',
+                    style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
+                const Spacer(),
+                Text(
+                  _moneda.format(totalRecaudado),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.brownDark),
+                ),
+              ],
+            ),
+          ),
+
+        // Lista de productos
+        Expanded(
+          child: stats.isEmpty
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bar_chart_outlined, size: 48, color: AppTheme.grey300),
+                      SizedBox(height: 12),
+                      Text('Sin ventas en el período seleccionado',
+                          style: TextStyle(fontSize: 14, color: AppTheme.grey600)),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: stats.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, i) {
+                    final entry = stats.entries.elementAt(i);
+                    final s = entry.value;
+                    final maxCantidad = stats.values.first.cantidad;
+                    return _ProductoReporteCard(
+                      nombre: s.nombre,
+                      cantidad: s.cantidad,
+                      total: s.total,
+                      fraccion: maxCantidad > 0 ? s.cantidad / maxCantidad : 0,
+                      rank: i + 1,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProductoStats {
+  final String nombre;
+  int cantidad = 0;
+  int total = 0;
+  _ProductoStats({required this.nombre});
+}
+
+class _DateButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+  const _DateButton({required this.label, required this.onTap, required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? AppTheme.brownDark.withAlpha(15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: active ? AppTheme.brownDark : AppTheme.grey300,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.calendar_today_outlined,
+                size: 12,
+                color: active ? AppTheme.brownDark : AppTheme.grey600),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: active ? AppTheme.brownDark : AppTheme.grey600,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductoReporteCard extends StatelessWidget {
+  final String nombre;
+  final int cantidad;
+  final int total;
+  final double fraccion;
+  final int rank;
+
+  const _ProductoReporteCard({
+    required this.nombre,
+    required this.cantidad,
+    required this.total,
+    required this.fraccion,
+    required this.rank,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.grey300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: rank == 1
+                      ? AppTheme.caramel
+                      : rank == 2
+                          ? AppTheme.grey300
+                          : AppTheme.cream,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$rank',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: rank <= 2 ? AppTheme.brownDark : AppTheme.grey600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(nombre,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.brownDark)),
+              ),
+              Text(
+                '$cantidad u.',
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w700, color: AppTheme.brownDark),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                _moneda.format(total),
+                style: const TextStyle(fontSize: 13, color: AppTheme.grey600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: fraccion,
+              minHeight: 5,
+              backgroundColor: AppTheme.grey300,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                  rank == 1 ? AppTheme.caramel : AppTheme.brownMed),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
