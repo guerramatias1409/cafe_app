@@ -336,15 +336,25 @@ class AppState extends ChangeNotifier {
       });
 
   void _recalcularInicialDesdeAjustes() {
-    // Resetear ajustes
+    // Resetear ajustes de insumos
     for (final entry in stock.values) {
       entry.ajuste = 0;
     }
+    // Resetear ajustes de productos
+    _ajusteTotalProductos.clear();
     for (final a in stockAjustes) {
-      stock.putIfAbsent(a.insumoId, () => StockEntry(insumoId: a.insumoId, inicial: 0));
-      stock[a.insumoId]!.ajuste += a.cantidad;
+      if (a.tipo == 'producto') {
+        _ajusteTotalProductos[a.referenciaId] =
+            (_ajusteTotalProductos[a.referenciaId] ?? 0) + a.cantidad;
+      } else {
+        stock.putIfAbsent(a.referenciaId, () => StockEntry(insumoId: a.referenciaId, inicial: 0));
+        stock[a.referenciaId]!.ajuste += a.cantidad;
+      }
     }
   }
+
+  final Map<String, int> _ajusteTotalProductos = {};
+  int ajusteTotalProducto(String id) => _ajusteTotalProductos[id] ?? 0;
 
   void _sortInsumos()  => insumos.sort((a, b) => a.nombre.compareTo(b.nombre));
   void _sortCombos()   => combos.sort((a, b) => a.nombre.compareTo(b.nombre));
@@ -739,15 +749,40 @@ class AppState extends ChangeNotifier {
     final pedido = pedidos[idx];
     if (pedido.estado == EstadoPedido.recibido) return;
 
+    final fechaStr = '${pedido.fecha.day.toString().padLeft(2,'0')}/${pedido.fecha.month.toString().padLeft(2,'0')}/${pedido.fecha.year}';
+    final desc = 'Pedido de ${pedido.proveedorNombre} · $fechaStr';
     for (final item in pedido.items) {
       if (item.tipo == TipoItemPedido.insumo) {
-        stock.putIfAbsent(item.referenciaId, () => StockEntry(insumoId: item.referenciaId, inicial: 0));
-        stock[item.referenciaId]!.inicial += item.cantidad;
         preciosCompra['i_${item.referenciaId}'] = item.precioUnitario;
+        // Registrar como ajuste de stock
+        final ajuste = StockAjuste(
+          id: '${DateTime.now().microsecondsSinceEpoch}_${item.referenciaId}',
+          referenciaId: item.referenciaId,
+          tipo: 'insumo',
+          cantidad: item.cantidad,
+          descripcion: desc,
+          timestamp: DateTime.now(),
+          pedidoId: pedido.id,
+        );
+        await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
+        stockAjustes.insert(0, ajuste);
+        stock.putIfAbsent(item.referenciaId, () => StockEntry(insumoId: item.referenciaId, inicial: 0));
+        stock[item.referenciaId]!.ajuste += item.cantidad;
       } else {
-        stockInicialProductos[item.referenciaId] =
-            (stockInicialProductos[item.referenciaId] ?? 0) + item.cantidad;
         preciosCompra['p_${item.referenciaId}'] = item.precioUnitario;
+        final ajuste = StockAjuste(
+          id: '${DateTime.now().microsecondsSinceEpoch}_${item.referenciaId}',
+          referenciaId: item.referenciaId,
+          tipo: 'producto',
+          cantidad: item.cantidad,
+          descripcion: desc,
+          timestamp: DateTime.now(),
+          pedidoId: pedido.id,
+        );
+        await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
+        stockAjustes.insert(0, ajuste);
+        _ajusteTotalProductos[item.referenciaId] =
+            (_ajusteTotalProductos[item.referenciaId] ?? 0) + item.cantidad;
       }
     }
 
@@ -767,12 +802,27 @@ class AppState extends ChangeNotifier {
 
     for (final item in pedido.items) {
       if (item.tipo == TipoItemPedido.insumo) {
-        final e = stock[item.referenciaId];
-        if (e != null) e.inicial = (e.inicial - item.cantidad).clamp(0, 99999);
+        // Eliminar los ajustes generados al recibir este pedido (por pedidoId)
+        final ids = stockAjustes
+            .where((a) => a.referenciaId == item.referenciaId && a.pedidoId == pedido.id)
+            .map((a) => a.id)
+            .toList();
+        for (final ajusteId in ids) {
+          await _db.collection('stock_ajustes').doc(ajusteId).delete();
+          stockAjustes.removeWhere((a) => a.id == ajusteId);
+          stock[item.referenciaId]?.ajuste -= item.cantidad;
+        }
       } else {
-        final actual = stockInicialProductos[item.referenciaId] ?? 0;
-        stockInicialProductos[item.referenciaId] =
-            (actual - item.cantidad).clamp(0, 99999);
+        final ids = stockAjustes
+            .where((a) => a.referenciaId == item.referenciaId && a.pedidoId == pedido.id)
+            .map((a) => a.id)
+            .toList();
+        for (final ajusteId in ids) {
+          await _db.collection('stock_ajustes').doc(ajusteId).delete();
+          stockAjustes.removeWhere((a) => a.id == ajusteId);
+          _ajusteTotalProductos[item.referenciaId] =
+              (_ajusteTotalProductos[item.referenciaId] ?? 0) - item.cantidad;
+        }
       }
     }
 
@@ -886,13 +936,17 @@ class AppState extends ChangeNotifier {
   // ── Ajustes de stock ───────────────────────────────────────────────────────
 
   List<StockAjuste> ajustesParaInsumo(String insumoId) =>
-      stockAjustes.where((a) => a.insumoId == insumoId).toList();
+      stockAjustes.where((a) => a.tipo == 'insumo' && a.referenciaId == insumoId).toList();
+
+  List<StockAjuste> ajustesParaProducto(String productoId) =>
+      stockAjustes.where((a) => a.tipo == 'producto' && a.referenciaId == productoId).toList();
 
   Future<void> agregarStockAjuste(
       String insumoId, int cantidad, String descripcion) async {
     final ajuste = StockAjuste(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
-      insumoId: insumoId,
+      referenciaId: insumoId,
+      tipo: 'insumo',
       cantidad: cantidad,
       descripcion: descripcion,
       timestamp: DateTime.now(),
@@ -904,11 +958,32 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> agregarStockAjusteProducto(
+      String productoId, int cantidad, String descripcion) async {
+    final ajuste = StockAjuste(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      referenciaId: productoId,
+      tipo: 'producto',
+      cantidad: cantidad,
+      descripcion: descripcion,
+      timestamp: DateTime.now(),
+    );
+    await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
+    stockAjustes.insert(0, ajuste);
+    _ajusteTotalProductos[productoId] = (_ajusteTotalProductos[productoId] ?? 0) + cantidad;
+    notifyListeners();
+  }
+
   Future<void> eliminarStockAjuste(String ajusteId) async {
     final ajuste = stockAjustes.firstWhere((a) => a.id == ajusteId);
     await _db.collection('stock_ajustes').doc(ajusteId).delete();
     stockAjustes.removeWhere((a) => a.id == ajusteId);
-    stock[ajuste.insumoId]?.ajuste -= ajuste.cantidad;
+    if (ajuste.tipo == 'producto') {
+      _ajusteTotalProductos[ajuste.referenciaId] =
+          (_ajusteTotalProductos[ajuste.referenciaId] ?? 0) - ajuste.cantidad;
+    } else {
+      stock[ajuste.referenciaId]?.ajuste -= ajuste.cantidad;
+    }
     notifyListeners();
   }
 

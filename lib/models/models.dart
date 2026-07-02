@@ -488,32 +488,40 @@ class StockEntry {
 
 class StockAjuste {
   final String id;
-  final String insumoId;
+  final String referenciaId; // insumoId o productoId según tipo
+  final String tipo; // 'insumo' o 'producto'
   final int cantidad; // positivo = agrega, negativo = resta
   final String descripcion;
   final DateTime timestamp;
+  final String? pedidoId; // referencia al pedido de proveedor, si aplica
 
   StockAjuste({
     required this.id,
-    required this.insumoId,
+    required this.referenciaId,
+    this.tipo = 'insumo',
     required this.cantidad,
     required this.descripcion,
     required this.timestamp,
+    this.pedidoId,
   });
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'insumoId': insumoId,
+        'insumoId': referenciaId, // nombre legacy mantenido para compat
+        'tipo': tipo,
         'cantidad': cantidad,
         'descripcion': descripcion,
         'timestamp': timestamp.toIso8601String(),
+        if (pedidoId != null) 'pedidoId': pedidoId,
       };
 
   factory StockAjuste.fromJson(Map<String, dynamic> j) => StockAjuste(
         id: j['id'],
-        insumoId: j['insumoId'],
+        referenciaId: j['insumoId'] as String,
+        tipo: j['tipo'] as String? ?? 'insumo',
         cantidad: (j['cantidad'] as num).toInt(),
         descripcion: j['descripcion'] ?? '',
         timestamp: DateTime.parse(j['timestamp']),
+        pedidoId: j['pedidoId'] as String?,
       );
 }

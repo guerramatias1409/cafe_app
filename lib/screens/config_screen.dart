@@ -1516,7 +1516,7 @@ class _MargenChip extends StatelessWidget {
     final costo = state.costoEstimadoProducto(producto);
     if (costo == null) return const SizedBox.shrink();
     final margen = producto.precio - costo;
-    final pct = producto.precio > 0 ? (margen / producto.precio * 100).round() : 0;
+    final pct = costo > 0 ? (margen / costo * 100).round() : 0;
     final positive = margen >= 0;
     return Padding(
       padding: const EdgeInsets.only(left: 6),
