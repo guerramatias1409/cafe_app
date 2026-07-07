@@ -404,7 +404,7 @@ class ItemPedido {
       );
 }
 
-enum EstadoPedido { pendiente, recibido }
+enum EstadoPedido { pendiente, recibido, parcial }
 
 class PedidoProveedor {
   final String id;
@@ -415,6 +415,10 @@ class PedidoProveedor {
   EstadoPedido estado;
   String notas;
   DateTime? fechaRecepcion;
+  Set<int> itemsRecibidos; // índices de items ya recibidos
+
+  bool pagado;
+  DateTime? fechaPago;
 
   PedidoProveedor({
     required this.id,
@@ -425,9 +429,15 @@ class PedidoProveedor {
     this.estado = EstadoPedido.pendiente,
     this.notas = '',
     this.fechaRecepcion,
-  });
+    Set<int>? itemsRecibidos,
+    this.pagado = false,
+    this.fechaPago,
+  }) : itemsRecibidos = itemsRecibidos ?? {};
 
   int get costoTotal => items.fold(0, (s, i) => s + i.subtotal);
+  int get costoRecibido => items.asMap().entries
+      .where((e) => itemsRecibidos.contains(e.key))
+      .fold(0, (s, e) => s + e.value.subtotal);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -438,6 +448,9 @@ class PedidoProveedor {
         'estado': estado.index,
         'notas': notas,
         if (fechaRecepcion != null) 'fechaRecepcion': fechaRecepcion!.toIso8601String(),
+        'itemsRecibidos': itemsRecibidos.toList(),
+        'pagado': pagado,
+        if (fechaPago != null) 'fechaPago': fechaPago!.toIso8601String(),
       };
 
   factory PedidoProveedor.fromJson(Map<String, dynamic> j) => PedidoProveedor(
@@ -449,6 +462,9 @@ class PedidoProveedor {
         estado: EstadoPedido.values[j['estado'] ?? 0],
         notas: j['notas'] ?? '',
         fechaRecepcion: j['fechaRecepcion'] != null ? DateTime.parse(j['fechaRecepcion']) : null,
+        itemsRecibidos: (j['itemsRecibidos'] as List?)?.map((e) => e as int).toSet(),
+        pagado: j['pagado'] as bool? ?? false,
+        fechaPago: j['fechaPago'] != null ? DateTime.parse(j['fechaPago']) : null,
       );
 }
 

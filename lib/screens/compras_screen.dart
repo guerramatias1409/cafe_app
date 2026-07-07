@@ -412,16 +412,49 @@ class _PedidosTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final deuda = state.totalDeudaPendiente;
     return Stack(
       children: [
         state.pedidos.isEmpty
             ? const Center(child: Text('No hay pedidos'))
             : ListView.separated(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 76, 16, 80),
                 itemCount: state.pedidos.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (ctx, i) => _PedidoCard(pedido: state.pedidos[i]),
               ),
+        // Banner deuda pendiente
+        Positioned(
+            top: 0, left: 0, right: 0,
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: deuda > 0 ? const Color(0xFFFFF3E0) : AppTheme.greenLight,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: deuda > 0 ? Colors.orange.shade300 : AppTheme.green.withOpacity(0.4)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    deuda > 0 ? Icons.account_balance_wallet_outlined : Icons.check_circle_outline,
+                    color: deuda > 0 ? const Color(0xFFE65100) : AppTheme.green,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Pendiente de pago a proveedores:',
+                    style: TextStyle(fontSize: 13, color: deuda > 0 ? const Color(0xFFE65100) : AppTheme.green),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _precio(deuda),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: deuda > 0 ? const Color(0xFFE65100) : AppTheme.green),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Positioned(
           right: 16,
           bottom: 16,
@@ -469,7 +502,6 @@ class _PedidoCardState extends State<_PedidoCard> {
   @override
   Widget build(BuildContext context) {
     final pedido = widget.pedido;
-    final recibido = pedido.estado == EstadoPedido.recibido;
     final fmt = DateFormat('dd/MM/yyyy', 'es');
 
     return Card(
@@ -492,7 +524,23 @@ class _PedidoCardState extends State<_PedidoCard> {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700, fontSize: 15)),
                             const SizedBox(width: 8),
-                            _EstadoBadge(recibido: recibido),
+                            _EstadoBadge(estado: pedido.estado),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: pedido.pagado ? AppTheme.greenLight : const Color(0xFFFFF3E0),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                pedido.pagado ? 'Pagado' : 'No pagado',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: pedido.pagado ? AppTheme.green : const Color(0xFFE65100),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -514,7 +562,7 @@ class _PedidoCardState extends State<_PedidoCard> {
               ),
             ),
           ),
-          if (_expanded) _buildDetalle(context, pedido, recibido),
+          if (_expanded) _buildDetalle(context, pedido, pedido.estado == EstadoPedido.recibido),
         ],
       ),
     );
@@ -523,6 +571,9 @@ class _PedidoCardState extends State<_PedidoCard> {
   Widget _buildDetalle(
       BuildContext context, PedidoProveedor pedido, bool recibido) {
     final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+    final state = context.read<AppState>();
+    final totalmenteRecibido = pedido.estado == EstadoPedido.recibido;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -532,79 +583,128 @@ class _PedidoCardState extends State<_PedidoCard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ...pedido.items.map((item) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Expanded(
+              // Ítems con opción de recepción individual
+              ...pedido.items.asMap().entries.map((entry) {
+                final i = entry.key;
+                final item = entry.value;
+                final itemRecibido = pedido.itemsRecibidos.contains(i);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${item.nombre}  ×${item.cantidad}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: itemRecibido ? AppTheme.grey600 : AppTheme.brownDark,
+                                decoration: itemRecibido ? TextDecoration.lineThrough : null,
+                              ),
+                            ),
+                            Text(
+                              '${_precio(item.precioUnitario)} u.  =  ${_precio(item.subtotal)}',
+                              style: const TextStyle(fontSize: 12, color: AppTheme.grey600),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (!totalmenteRecibido)
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () async {
+                            if (itemRecibido) {
+                              await state.revertirItemPedido(pedido.id, i);
+                            } else {
+                              await state.recibirItemPedido(pedido.id, i);
+                            }
+                            if (context.mounted) setState(() {});
+                          },
                           child: Text(
-                            '${item.nombre}  ×${item.cantidad}',
-                            style: const TextStyle(fontSize: 14),
+                            itemRecibido ? 'Revertir' : 'Recibir',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: itemRecibido ? AppTheme.red : AppTheme.green,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
-                        Text(
-                          '${_precio(item.precioUnitario)} u.  =  ${_precio(item.subtotal)}',
-                          style: const TextStyle(
-                              fontSize: 13, color: AppTheme.grey600),
-                        ),
-                      ],
-                    ),
-                  )),
+                      if (totalmenteRecibido)
+                        const Icon(Icons.check_circle, size: 18, color: AppTheme.green),
+                    ],
+                  ),
+                );
+              }),
               const Divider(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Total pedido',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
-                  Text(_precio(pedido.costoTotal),
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const Text('Total pedido', style: TextStyle(fontWeight: FontWeight.w700)),
+                  Text(_precio(pedido.costoTotal), style: const TextStyle(fontWeight: FontWeight.w700)),
                 ],
               ),
               if (pedido.notas.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text('Notas: ${pedido.notas}',
-                    style:
-                        const TextStyle(color: AppTheme.grey600, fontSize: 13)),
+                    style: const TextStyle(color: AppTheme.grey600, fontSize: 13)),
               ],
-              if (recibido && pedido.fechaRecepcion != null) ...[
+              if (pedido.fechaRecepcion != null) ...[
                 const SizedBox(height: 4),
                 Text('Recibido: ${fmt.format(pedido.fechaRecepcion!)}',
-                    style:
-                        const TextStyle(color: AppTheme.grey600, fontSize: 12)),
+                    style: const TextStyle(color: AppTheme.grey600, fontSize: 12)),
               ],
+              const SizedBox(height: 4),
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: pedido.id));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('ID copiado al portapapeles'), duration: Duration(seconds: 2)),
+                  );
+                },
+                child: Row(
+                  children: [
+                    Text('ID: ${pedido.id}',
+                        style: const TextStyle(fontSize: 11, color: AppTheme.grey600, fontFamily: 'monospace')),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.copy, size: 13, color: AppTheme.grey600),
+                  ],
+                ),
+              ),
               const SizedBox(height: 10),
               Row(
                 children: [
-                  if (!recibido)
+                  if (!totalmenteRecibido)
                     Expanded(
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.check_circle_outline, size: 18),
-                        label: const Text('Marcar recibido'),
+                        label: const Text('Recibir todo'),
                         onPressed: () async {
-                          await context
-                              .read<AppState>()
-                              .marcarPedidoRecibido(pedido.id);
+                          await context.read<AppState>().marcarPedidoRecibido(pedido.id);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Stock actualizado')),
+                              const SnackBar(content: Text('Stock actualizado')),
                             );
                           }
                         },
                       ),
                     ),
-                  if (recibido)
+                  if (pedido.estado != EstadoPedido.pendiente)
                     Expanded(
                       child: OutlinedButton.icon(
-                        icon: const Icon(Icons.undo, size: 18,
-                            color: AppTheme.brownMed),
-                        label: const Text('Revertir recepción',
+                        icon: const Icon(Icons.undo, size: 18, color: AppTheme.brownMed),
+                        label: const Text('Revertir todo',
                             style: TextStyle(color: AppTheme.brownMed)),
                         onPressed: () => _confirmRevertir(context, pedido),
                       ),
                     ),
                   const SizedBox(width: 8),
-                  if (!recibido)
+                  if (pedido.estado == EstadoPedido.pendiente)
                     IconButton(
                       tooltip: 'Eliminar pedido',
                       icon: const Icon(Icons.delete_outline, color: AppTheme.red),
@@ -612,10 +712,101 @@ class _PedidoCardState extends State<_PedidoCard> {
                     ),
                 ],
               ),
+              // Botón pago (solo si hay algo recibido)
+              if (pedido.estado != EstadoPedido.pendiente) ...[
+                const SizedBox(height: 8),
+                if (pedido.pagado && pedido.fechaPago != null) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      'Pagado el ${DateFormat('dd/MM/yyyy').format(pedido.fechaPago!)}',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.green, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: pedido.pagado
+                      ? OutlinedButton.icon(
+                          icon: const Icon(Icons.money_off, size: 18, color: AppTheme.grey600),
+                          label: const Text('Marcar como no pagado',
+                              style: TextStyle(color: AppTheme.grey600)),
+                          onPressed: () => context.read<AppState>().desmarcarPedidoPagado(pedido.id),
+                        )
+                      : ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.green),
+                          icon: const Icon(Icons.attach_money, size: 18),
+                          label: const Text('Marcar como pagado'),
+                          onPressed: () => _marcarPagado(context, pedido),
+                        ),
+                ),
+              ],
+              Row(children: [
+                ],
+              ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  void _marcarPagado(BuildContext context, PedidoProveedor pedido) {
+    DateTime fechaSeleccionada = DateTime.now();
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => AlertDialog(
+          title: const Text('Fecha de pago'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: fechaSeleccionada,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                    locale: const Locale('es'),
+                  );
+                  if (picked != null) setModal(() => fechaSeleccionada = picked);
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppTheme.caramel),
+                    borderRadius: BorderRadius.circular(10),
+                    color: AppTheme.cream,
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today, size: 18, color: AppTheme.brownMed),
+                      const SizedBox(width: 10),
+                      Text(
+                        DateFormat('dd/MM/yyyy').format(fechaSeleccionada),
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.brownDark),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.green),
+              onPressed: () {
+                context.read<AppState>().marcarPedidoPagado(pedido.id, fechaSeleccionada);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Confirmar'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -668,25 +859,28 @@ class _PedidoCardState extends State<_PedidoCard> {
 }
 
 class _EstadoBadge extends StatelessWidget {
-  const _EstadoBadge({required this.recibido});
-  final bool recibido;
+  const _EstadoBadge({required this.estado});
+  final EstadoPedido estado;
 
   @override
   Widget build(BuildContext context) {
+    final (label, bg, fg) = switch (estado) {
+      EstadoPedido.recibido => ('Recibido', AppTheme.greenLight, AppTheme.green),
+      EstadoPedido.parcial  => (
+          'Parcial',
+          const Color(0xFFFFF3E0),
+          const Color(0xFFE65100),
+        ),
+      EstadoPedido.pendiente => (
+          'Pendiente',
+          AppTheme.orange,
+          const Color(0xFFE65100),
+        ),
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: recibido ? AppTheme.greenLight : AppTheme.orange,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        recibido ? 'Recibido' : 'Pendiente',
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: recibido ? AppTheme.green : const Color(0xFFE65100),
-        ),
-      ),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
     );
   }
 }

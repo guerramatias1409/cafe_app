@@ -743,47 +743,60 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Recibe un único ítem del pedido (por índice). Si quedan ítems sin recibir → parcial.
+  Future<void> recibirItemPedido(String pedidoId, int itemIdx) async {
+    final idx = pedidos.indexWhere((p) => p.id == pedidoId);
+    if (idx == -1) return;
+    final pedido = pedidos[idx];
+    if (pedido.itemsRecibidos.contains(itemIdx)) return;
+
+    final item = pedido.items[itemIdx];
+    await _registrarAjusteItem(pedido, item);
+
+    pedido.itemsRecibidos.add(itemIdx);
+    pedido.estado = pedido.itemsRecibidos.length == pedido.items.length
+        ? EstadoPedido.recibido
+        : EstadoPedido.parcial;
+    if (pedido.estado == EstadoPedido.recibido) {
+      pedido.fechaRecepcion = DateTime.now();
+    }
+    await _savePedidoToDb(pedido);
+    await _saveStockToDb();
+    await _savePreciosCompraToDb();
+    notifyListeners();
+  }
+
+  // Revierte la recepción de un único ítem.
+  Future<void> revertirItemPedido(String pedidoId, int itemIdx) async {
+    final idx = pedidos.indexWhere((p) => p.id == pedidoId);
+    if (idx == -1) return;
+    final pedido = pedidos[idx];
+    if (!pedido.itemsRecibidos.contains(itemIdx)) return;
+
+    final item = pedido.items[itemIdx];
+    await _eliminarAjusteItem(pedido, item);
+
+    pedido.itemsRecibidos.remove(itemIdx);
+    pedido.estado = pedido.itemsRecibidos.isEmpty
+        ? EstadoPedido.pendiente
+        : EstadoPedido.parcial;
+    if (pedido.estado != EstadoPedido.recibido) pedido.fechaRecepcion = null;
+    await _savePedidoToDb(pedido);
+    await _saveStockToDb();
+    notifyListeners();
+  }
+
+  // Recibe todos los ítems pendientes de un pedido.
   Future<void> marcarPedidoRecibido(String id) async {
     final idx = pedidos.indexWhere((p) => p.id == id);
     if (idx == -1) return;
     final pedido = pedidos[idx];
     if (pedido.estado == EstadoPedido.recibido) return;
 
-    final fechaStr = '${pedido.fecha.day.toString().padLeft(2,'0')}/${pedido.fecha.month.toString().padLeft(2,'0')}/${pedido.fecha.year}';
-    final desc = 'Pedido de ${pedido.proveedorNombre} · $fechaStr';
-    for (final item in pedido.items) {
-      if (item.tipo == TipoItemPedido.insumo) {
-        preciosCompra['i_${item.referenciaId}'] = item.precioUnitario;
-        // Registrar como ajuste de stock
-        final ajuste = StockAjuste(
-          id: '${DateTime.now().microsecondsSinceEpoch}_${item.referenciaId}',
-          referenciaId: item.referenciaId,
-          tipo: 'insumo',
-          cantidad: item.cantidad,
-          descripcion: desc,
-          timestamp: DateTime.now(),
-          pedidoId: pedido.id,
-        );
-        await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
-        stockAjustes.insert(0, ajuste);
-        stock.putIfAbsent(item.referenciaId, () => StockEntry(insumoId: item.referenciaId, inicial: 0));
-        stock[item.referenciaId]!.ajuste += item.cantidad;
-      } else {
-        preciosCompra['p_${item.referenciaId}'] = item.precioUnitario;
-        final ajuste = StockAjuste(
-          id: '${DateTime.now().microsecondsSinceEpoch}_${item.referenciaId}',
-          referenciaId: item.referenciaId,
-          tipo: 'producto',
-          cantidad: item.cantidad,
-          descripcion: desc,
-          timestamp: DateTime.now(),
-          pedidoId: pedido.id,
-        );
-        await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
-        stockAjustes.insert(0, ajuste);
-        _ajusteTotalProductos[item.referenciaId] =
-            (_ajusteTotalProductos[item.referenciaId] ?? 0) + item.cantidad;
-      }
+    for (var i = 0; i < pedido.items.length; i++) {
+      if (pedido.itemsRecibidos.contains(i)) continue;
+      await _registrarAjusteItem(pedido, pedido.items[i]);
+      pedido.itemsRecibidos.add(i);
     }
 
     pedido.estado = EstadoPedido.recibido;
@@ -794,44 +807,87 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Revierte todos los ítems recibidos de un pedido.
   Future<void> revertirPedido(String id) async {
     final idx = pedidos.indexWhere((p) => p.id == id);
     if (idx == -1) return;
     final pedido = pedidos[idx];
-    if (pedido.estado != EstadoPedido.recibido) return;
+    if (pedido.estado == EstadoPedido.pendiente) return;
 
-    for (final item in pedido.items) {
-      if (item.tipo == TipoItemPedido.insumo) {
-        // Eliminar los ajustes generados al recibir este pedido (por pedidoId)
-        final ids = stockAjustes
-            .where((a) => a.referenciaId == item.referenciaId && a.pedidoId == pedido.id)
-            .map((a) => a.id)
-            .toList();
-        for (final ajusteId in ids) {
-          await _db.collection('stock_ajustes').doc(ajusteId).delete();
-          stockAjustes.removeWhere((a) => a.id == ajusteId);
-          stock[item.referenciaId]?.ajuste -= item.cantidad;
-        }
-      } else {
-        final ids = stockAjustes
-            .where((a) => a.referenciaId == item.referenciaId && a.pedidoId == pedido.id)
-            .map((a) => a.id)
-            .toList();
-        for (final ajusteId in ids) {
-          await _db.collection('stock_ajustes').doc(ajusteId).delete();
-          stockAjustes.removeWhere((a) => a.id == ajusteId);
-          _ajusteTotalProductos[item.referenciaId] =
-              (_ajusteTotalProductos[item.referenciaId] ?? 0) - item.cantidad;
-        }
-      }
+    for (final itemIdx in pedido.itemsRecibidos.toList()) {
+      await _eliminarAjusteItem(pedido, pedido.items[itemIdx]);
     }
 
+    pedido.itemsRecibidos.clear();
     pedido.estado = EstadoPedido.pendiente;
     pedido.fechaRecepcion = null;
     await _savePedidoToDb(pedido);
     await _saveStockToDb();
     notifyListeners();
   }
+
+  Future<void> _registrarAjusteItem(PedidoProveedor pedido, ItemPedido item) async {
+    final fechaStr = '${pedido.fecha.day.toString().padLeft(2,'0')}/${pedido.fecha.month.toString().padLeft(2,'0')}/${pedido.fecha.year}';
+    final desc = 'Pedido de ${pedido.proveedorNombre} · $fechaStr';
+    final tipoStr = item.tipo == TipoItemPedido.insumo ? 'insumo' : 'producto';
+    final ajuste = StockAjuste(
+      id: '${DateTime.now().microsecondsSinceEpoch}_${item.referenciaId}',
+      referenciaId: item.referenciaId,
+      tipo: tipoStr,
+      cantidad: item.cantidad,
+      descripcion: desc,
+      timestamp: DateTime.now(),
+      pedidoId: pedido.id,
+    );
+    await _db.collection('stock_ajustes').doc(ajuste.id).set(ajuste.toJson());
+    stockAjustes.insert(0, ajuste);
+    if (item.tipo == TipoItemPedido.insumo) {
+      preciosCompra['i_${item.referenciaId}'] = item.precioUnitario;
+      stock.putIfAbsent(item.referenciaId, () => StockEntry(insumoId: item.referenciaId, inicial: 0));
+      stock[item.referenciaId]!.ajuste += item.cantidad;
+    } else {
+      preciosCompra['p_${item.referenciaId}'] = item.precioUnitario;
+      _ajusteTotalProductos[item.referenciaId] =
+          (_ajusteTotalProductos[item.referenciaId] ?? 0) + item.cantidad;
+    }
+  }
+
+  Future<void> _eliminarAjusteItem(PedidoProveedor pedido, ItemPedido item) async {
+    final ids = stockAjustes
+        .where((a) => a.referenciaId == item.referenciaId && a.pedidoId == pedido.id)
+        .map((a) => a.id)
+        .toList();
+    for (final ajusteId in ids) {
+      await _db.collection('stock_ajustes').doc(ajusteId).delete();
+      stockAjustes.removeWhere((a) => a.id == ajusteId);
+      if (item.tipo == TipoItemPedido.insumo) {
+        stock[item.referenciaId]?.ajuste -= item.cantidad;
+      } else {
+        _ajusteTotalProductos[item.referenciaId] =
+            (_ajusteTotalProductos[item.referenciaId] ?? 0) - item.cantidad;
+      }
+    }
+  }
+
+  Future<void> marcarPedidoPagado(String id, DateTime fechaPago) async {
+    final pedido = pedidos.firstWhere((p) => p.id == id);
+    pedido.pagado = true;
+    pedido.fechaPago = fechaPago;
+    await _savePedidoToDb(pedido);
+    notifyListeners();
+  }
+
+  Future<void> desmarcarPedidoPagado(String id) async {
+    final pedido = pedidos.firstWhere((p) => p.id == id);
+    pedido.pagado = false;
+    pedido.fechaPago = null;
+    await _savePedidoToDb(pedido);
+    notifyListeners();
+  }
+
+  int get totalDeudaPendiente => pedidos
+      .where((p) => !p.pagado)
+      .fold(0, (s, p) => s + p.costoTotal);
 
   void eliminarPedido(String id) {
     pedidos.removeWhere((p) => p.id == id);
