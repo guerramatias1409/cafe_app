@@ -472,7 +472,7 @@ class PedidoProveedor {
 
 class StockEntry {
   final String insumoId;
-  int inicial;
+  final int inicial; // inmutable — nunca modificar después de crear
   int vendidos;
   int ajuste; // suma de StockAjuste.cantidad, no persiste en Firestore
 

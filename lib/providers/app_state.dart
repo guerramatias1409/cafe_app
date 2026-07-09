@@ -438,13 +438,6 @@ class AppState extends ChangeNotifier {
 
   // ── Stock ──────────────────────────────────────────────────────────────────
 
-  void setStockInicial(String insumoId, int cantidad) {
-    stock.putIfAbsent(insumoId, () => StockEntry(insumoId: insumoId, inicial: 0));
-    stock[insumoId]!.inicial = cantidad;
-    _saveStockToDb();
-    notifyListeners();
-  }
-
   void setStockInicialProducto(String id, int cantidad) {
     stockInicialProductos[id] = cantidad;
     _saveStockToDb();
@@ -587,19 +580,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void resetDia() {
-    for (final v in ventas) {
-      _deleteVentaFromDb(v.id);
-    }
-    ventas.clear();
-    for (var e in stock.values) {
-      e.vendidos = 0;
-      e.inicial = 0;
-    }
-    _stockVendidosProductosExtra.clear();
-    _saveStockToDb();
-    notifyListeners();
-  }
 
   // ── Backup / Restore ───────────────────────────────────────────────────────
 

@@ -102,49 +102,12 @@ class ResumenScreen extends StatelessWidget {
             );
           }),
 
-          const SizedBox(height: 32),
-
-          // ── Reset
-          OutlinedButton.icon(
-            onPressed: () => _showResetDialog(context, state),
-            icon: const Icon(Icons.refresh, size: 18),
-            label: const Text('Resetear día'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.red,
-              side: const BorderSide(color: AppTheme.red),
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  void _showResetDialog(BuildContext context, AppState state) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Resetear el día'),
-        content: const Text(
-            'Esto va a borrar todas las ventas y el stock. No se puede deshacer.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar')),
-          TextButton(
-            onPressed: () {
-              state.resetDia();
-              Navigator.pop(context);
-            },
-            child: const Text('Resetear',
-                style: TextStyle(color: AppTheme.red)),
-          ),
-        ],
-      ),
-    );
-  }
+
 }
 
 class _ComboStat extends StatelessWidget {
