@@ -406,22 +406,42 @@ class _ProveedorCard extends StatelessWidget {
 // Pedidos tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _PedidosTab extends StatelessWidget {
+class _PedidosTab extends StatefulWidget {
   const _PedidosTab();
+
+  @override
+  State<_PedidosTab> createState() => _PedidosTabState();
+}
+
+class _PedidosTabState extends State<_PedidosTab> {
+  final Set<String> _filtroProveedores = {};
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final deuda = state.totalDeudaPendiente;
+
+    final proveedoresConPedidos = state.pedidos
+        .map((p) => p.proveedorNombre)
+        .toSet()
+        .toList()..sort();
+
+    final pedidosFiltrados = _filtroProveedores.isEmpty
+        ? state.pedidos
+        : state.pedidos.where((p) => _filtroProveedores.contains(p.proveedorNombre)).toList();
+
+    // Altura del banner + filtros
+    final topPadding = proveedoresConPedidos.isEmpty ? 76.0 : 122.0;
+
     return Stack(
       children: [
-        state.pedidos.isEmpty
-            ? const Center(child: Text('No hay pedidos'))
+        pedidosFiltrados.isEmpty
+            ? Center(child: Text(state.pedidos.isEmpty ? 'No hay pedidos' : 'Sin resultados para el filtro'))
             : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 76, 16, 80),
-                itemCount: state.pedidos.length,
+                padding: EdgeInsets.fromLTRB(16, topPadding, 16, 80),
+                itemCount: pedidosFiltrados.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (ctx, i) => _PedidoCard(pedido: state.pedidos[i]),
+                itemBuilder: (ctx, i) => _PedidoCard(pedido: pedidosFiltrados[i]),
               ),
         // Banner deuda pendiente
         Positioned(
@@ -452,6 +472,69 @@ class _PedidosTab extends StatelessWidget {
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: deuda > 0 ? const Color(0xFFE65100) : AppTheme.green),
                   ),
                 ],
+              ),
+            ),
+          ),
+        // Filtro por proveedor
+        if (proveedoresConPedidos.isNotEmpty)
+          Positioned(
+            top: 64, left: 0, right: 0,
+            child: SizedBox(
+              height: 46,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                scrollDirection: Axis.horizontal,
+                itemCount: proveedoresConPedidos.length + (_filtroProveedores.isNotEmpty ? 1 : 0),
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (ctx, i) {
+                  // Último ítem: botón limpiar filtros
+                  if (_filtroProveedores.isNotEmpty && i == proveedoresConPedidos.length) {
+                    return GestureDetector(
+                      onTap: () => setState(() => _filtroProveedores.clear()),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppTheme.red.withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.close, size: 13, color: AppTheme.red.withOpacity(0.8)),
+                            const SizedBox(width: 4),
+                            Text('Limpiar', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.red.withOpacity(0.8))),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  final nombre = proveedoresConPedidos[i];
+                  final activo = _filtroProveedores.contains(nombre);
+                  return GestureDetector(
+                    onTap: () => setState(() {
+                      if (activo) _filtroProveedores.remove(nombre);
+                      else _filtroProveedores.add(nombre);
+                    }),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: activo ? AppTheme.brownMed : AppTheme.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: activo ? AppTheme.brownMed : AppTheme.grey300),
+                      ),
+                      child: Text(
+                        nombre,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: activo ? Colors.white : AppTheme.brownDark,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
