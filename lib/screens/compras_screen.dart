@@ -86,7 +86,7 @@ class _ComprasScreenState extends State<ComprasScreen> {
       children: [
         _TabBar(selected: _tab, onTap: (i) => setState(() => _tab = i)),
         Expanded(
-          child: _tab == 0 ? const _ProveedoresTab() : const _PedidosTab(),
+          child: _tab == 0 ? const _PedidosTab() : const _ProveedoresTab(),
         ),
       ],
     );
@@ -106,8 +106,8 @@ class _TabBar extends StatelessWidget {
       color: AppTheme.white,
       child: Row(
         children: [
-          _Tab(label: 'Proveedores', active: selected == 0, onTap: () => onTap(0)),
-          _Tab(label: 'Pedidos', active: selected == 1, onTap: () => onTap(1)),
+          _Tab(label: 'Pedidos', active: selected == 0, onTap: () => onTap(0)),
+          _Tab(label: 'Proveedores', active: selected == 1, onTap: () => onTap(1)),
         ],
       ),
     );
