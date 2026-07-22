@@ -715,7 +715,7 @@ class _ItemRow extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                item.comboNombre +
+                item.nombreConOpcion +
                     (item.cafesAdicionales > 0
                         ? ' +${item.cafesAdicionales} café${item.cafesAdicionales > 1 ? 's' : ''}'
                         : '') +

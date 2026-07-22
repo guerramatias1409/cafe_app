@@ -449,7 +449,8 @@ class AppState extends ChangeNotifier {
   void agregarProducto(String nombre, int precio, CategoriaProducto categoria,
       {TamanoBebida? tamanoBebida,
       Map<String, int>? insumosConsumidos,
-      Map<String, int>? productosConsumidos}) {
+      Map<String, int>? productosConsumidos,
+      List<String>? opciones}) {
     productos.add(Producto(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       nombre: nombre,
@@ -458,6 +459,7 @@ class AppState extends ChangeNotifier {
       tamanoBebida: tamanoBebida,
       insumosConsumidos: insumosConsumidos,
       productosConsumidos: productosConsumidos,
+      opciones: opciones,
     ));
     _sortProductos();
     _saveProductosToDb();
@@ -472,7 +474,8 @@ class AppState extends ChangeNotifier {
       bool updateTamano = false,
       Map<String, int>? insumosConsumidos,
       Map<String, int>? productosConsumidos,
-      bool updateConsumos = false}) {
+      bool updateConsumos = false,
+      List<String>? opciones}) {
     final p = productos.firstWhere((p) => p.id == id);
     if (nombre != null) p.nombre = nombre;
     if (precio != null) p.precio = precio;
@@ -482,6 +485,7 @@ class AppState extends ChangeNotifier {
       p.insumosConsumidos = insumosConsumidos ?? {};
       p.productosConsumidos = productosConsumidos ?? {};
     }
+    if (opciones != null) p.opciones = opciones;
     _sortProductos();
     _saveProductosToDb();
     notifyListeners();

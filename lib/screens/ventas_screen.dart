@@ -70,7 +70,7 @@ class _VentasScreenState extends State<VentasScreen> {
         children: [
           Expanded(
             flex: 3,
-            child: _SelectorPanel(onAgregar: _agregarItem, state: state),
+            child: _SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -99,7 +99,7 @@ class _VentasScreenState extends State<VentasScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SelectorPanel(onAgregar: _agregarItem, state: state),
+          _SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
           if (_carrito.isNotEmpty) ...[
             const SizedBox(height: 24),
             _CarritoPanel(
@@ -174,8 +174,9 @@ class _VentasScreenState extends State<VentasScreen> {
 class _SelectorPanel extends StatefulWidget {
   final ValueChanged<ItemCarrito> onAgregar;
   final AppState state;
+  final List<ItemCarrito> enCarrito;
 
-  const _SelectorPanel({required this.onAgregar, required this.state});
+  const _SelectorPanel({required this.onAgregar, required this.state, required this.enCarrito});
 
   @override
   State<_SelectorPanel> createState() => _SelectorPanelState();
@@ -219,12 +220,14 @@ class _SelectorPanelState extends State<_SelectorPanel> {
         ));
       }
     }
+    // Solo productos SIN opciones — los que tienen opciones se agregan al instante
     for (final p in widget.state.productos) {
+      if (p.opciones.isNotEmpty) continue;
       final qty = _cantidades[p.id] ?? 0;
       if (qty > 0) {
         widget.onAgregar(ItemCarrito(
           comboId: p.id,
-          comboNombre: p.displayNombre, // incluye tamaño si es Cafetería
+          comboNombre: p.displayNombre,
           cafesAdicionales: 0,
           precioUnitario: p.precio,
           cantidad: qty,
@@ -234,7 +237,37 @@ class _SelectorPanelState extends State<_SelectorPanel> {
     setState(() => _cantidades.clear());
   }
 
-  // ── Fila individual (combo o producto) ──────────────────────────────────────
+  // Agrega inmediatamente 1 unidad con opción elegida al carrito
+  Future<void> _agregarConOpcion(Producto p) async {
+    final opcion = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Sabor · ${p.displayNombre}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: p.opciones.map((op) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(op, style: const TextStyle(fontSize: 15)),
+            onTap: () => Navigator.pop(ctx, op),
+          )).toList(),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+        ],
+      ),
+    );
+    if (opcion == null) return;
+    widget.onAgregar(ItemCarrito(
+      comboId: p.id,
+      comboNombre: p.displayNombre,
+      cafesAdicionales: 0,
+      precioUnitario: p.precio,
+      cantidad: 1,
+      opcion: opcion,
+    ));
+  }
+
+  // ── Fila individual (combo o producto sin opciones) ─────────────────────────
 
   Widget _buildRow(String id, String nombre, int precio) {
     final qty = _cantidades[id] ?? 0;
@@ -284,6 +317,82 @@ class _SelectorPanelState extends State<_SelectorPanel> {
               max: 20,
               onChanged: (v) =>
                   setState(() => _cantidades[id] = v),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Fila para producto CON opciones (un tap = elegir sabor + agregar 1) ──────
+
+  Widget _buildProductoConOpcionesRow(Producto p) {
+    // Contar cuántos ítems de este producto ya están en el carrito
+    final enCarrito = widget.enCarrito
+        .where((it) => it.comboId == p.id)
+        .fold(0, (sum, it) => sum + it.cantidad);
+    final tieneEnCarrito = enCarrito > 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: tieneEnCarrito ? AppTheme.cream : AppTheme.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: tieneEnCarrito ? AppTheme.caramel : AppTheme.grey300,
+            width: tieneEnCarrito ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        p.displayNombre,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: tieneEnCarrito ? FontWeight.w600 : FontWeight.w400,
+                          color: AppTheme.brownDark,
+                        ),
+                      ),
+                      if (tieneEnCarrito) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.caramel,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$enCarrito',
+                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  Text(
+                    _moneda.format(p.precio),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: tieneEnCarrito ? AppTheme.caramel : AppTheme.grey600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              color: AppTheme.caramel,
+              iconSize: 28,
+              onPressed: () => _agregarConOpcion(p),
             ),
           ],
         ),
@@ -402,17 +511,23 @@ class _SelectorPanelState extends State<_SelectorPanel> {
 
     final cafeteriaRows = state.productos
         .where((p) => p.activo && p.categoria == CategoriaProducto.cafeteria)
-        .map((p) => _buildRow(p.id, p.displayNombre, p.precio))
+        .map((p) => p.opciones.isNotEmpty
+            ? _buildProductoConOpcionesRow(p)
+            : _buildRow(p.id, p.displayNombre, p.precio))
         .toList();
 
     final dulcesRows = state.productos
         .where((p) => p.activo && p.categoria == CategoriaProducto.deliciasDulces)
-        .map((p) => _buildRow(p.id, p.nombre, p.precio))
+        .map((p) => p.opciones.isNotEmpty
+            ? _buildProductoConOpcionesRow(p)
+            : _buildRow(p.id, p.nombre, p.precio))
         .toList();
 
     final saladosRows = state.productos
         .where((p) => p.activo && p.categoria == CategoriaProducto.salados)
-        .map((p) => _buildRow(p.id, p.nombre, p.precio))
+        .map((p) => p.opciones.isNotEmpty
+            ? _buildProductoConOpcionesRow(p)
+            : _buildRow(p.id, p.nombre, p.precio))
         .toList();
 
     Widget content = Column(
@@ -946,7 +1061,7 @@ class _ItemCarritoRow extends StatelessWidget {
         children: [
           Expanded(
             child: Text(
-              item.comboNombre +
+              item.nombreConOpcion +
                   (item.cafesAdicionales > 0
                       ? ' +${item.cafesAdicionales} café${item.cafesAdicionales > 1 ? 's' : ''}'
                       : '') +
@@ -1036,50 +1151,106 @@ class _MedioPagoSelector extends StatelessWidget {
 
 // ── Venta row (historial reciente) ────────────────────────────────────────────
 
-class _VentaRow extends StatelessWidget {
+class _VentaRow extends StatefulWidget {
   final Venta v;
   const _VentaRow({required this.v});
 
   @override
+  State<_VentaRow> createState() => _VentaRowState();
+}
+
+class _VentaRowState extends State<_VentaRow> {
+  bool _expandido = false;
+
+  @override
   Widget build(BuildContext context) {
+    final v = widget.v;
     final hora = DateFormat('HH:mm').format(v.timestamp);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.grey300),
-      ),
-      child: Row(
-        children: [
-          Text(hora,
-              style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.grey600,
-                  fontFeatures: [FontFeature.tabularFigures()])),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(v.resumenCorto,
-                style: const TextStyle(
-                    fontSize: 13, color: AppTheme.brownDark)),
-          ),
-          Text(v.medioPago.emoji,
-              style: const TextStyle(fontSize: 14)),
-          if (v.propina > 0) ...[
-            const SizedBox(width: 4),
-            Text('🤝', style: const TextStyle(fontSize: 12)),
-          ],
-          const SizedBox(width: 8),
-          Text(
-            _moneda.format(v.precioTotal + v.propina),
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.green,
+    final tieneDetalle = v.items.length > 1;
+
+    return GestureDetector(
+      onTap: tieneDetalle ? () => setState(() => _expandido = !_expandido) : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppTheme.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.grey300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(hora,
+                    style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.grey600,
+                        fontFeatures: [FontFeature.tabularFigures()])),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(v.resumenCorto,
+                      style: const TextStyle(
+                          fontSize: 13, color: AppTheme.brownDark)),
+                ),
+                Text(v.medioPago.emoji,
+                    style: const TextStyle(fontSize: 14)),
+                if (v.propina > 0) ...[
+                  const SizedBox(width: 4),
+                  const Text('🤝', style: TextStyle(fontSize: 12)),
+                ],
+                const SizedBox(width: 8),
+                Text(
+                  _moneda.format(v.precioTotal + v.propina),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.green,
+                  ),
+                ),
+                if (tieneDetalle) ...[
+                  const SizedBox(width: 6),
+                  AnimatedRotation(
+                    turns: _expandido ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 150),
+                    child: const Icon(Icons.keyboard_arrow_down,
+                        size: 16, color: AppTheme.grey600),
+                  ),
+                ],
+              ],
             ),
-          ),
-        ],
+            if (_expandido) ...[
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              const SizedBox(height: 6),
+              ...v.items.map((it) => Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            it.nombreConOpcion +
+                                (it.cafesAdicionales > 0
+                                    ? ' +${it.cafesAdicionales} café${it.cafesAdicionales > 1 ? 's' : ''}'
+                                    : '') +
+                                (it.cantidad > 1 ? ' ×${it.cantidad}' : ''),
+                            style: const TextStyle(
+                                fontSize: 12, color: AppTheme.brownDark),
+                          ),
+                        ),
+                        Text(
+                          _moneda.format(it.precioUnitario * it.cantidad),
+                          style: const TextStyle(
+                              fontSize: 12, color: AppTheme.grey600),
+                        ),
+                      ],
+                    ),
+                  )),
+            ],
+          ],
+        ),
       ),
     );
   }

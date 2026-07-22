@@ -105,6 +105,7 @@ class ItemCarrito {
   final int cafesAdicionales;
   final int precioUnitario; // precio por unidad (combo + adicionales)
   final int cantidad; // unidades (siempre 1 para combos; ≥1 para productos)
+  final String? opcion; // sabor / variante seleccionada (opcional)
 
   ItemCarrito({
     required this.comboId,
@@ -112,9 +113,12 @@ class ItemCarrito {
     required this.cafesAdicionales,
     required this.precioUnitario,
     this.cantidad = 1,
+    this.opcion,
   });
 
   int get precioTotal => precioUnitario * cantidad;
+
+  String get nombreConOpcion => opcion != null ? '$comboNombre · $opcion' : comboNombre;
 
   Map<String, dynamic> toJson() => {
         'comboId': comboId,
@@ -122,6 +126,7 @@ class ItemCarrito {
         'cafesAdicionales': cafesAdicionales,
         'precioUnitario': precioUnitario,
         'cantidad': cantidad,
+        if (opcion != null) 'opcion': opcion,
       };
 
   factory ItemCarrito.fromJson(Map<String, dynamic> j) => ItemCarrito(
@@ -130,6 +135,7 @@ class ItemCarrito {
         cafesAdicionales: j['cafesAdicionales'],
         precioUnitario: j['precioUnitario'],
         cantidad: j['cantidad'] ?? 1,
+        opcion: j['opcion'] as String?,
       );
 }
 
@@ -186,7 +192,7 @@ class Venta {
   String get resumenCorto {
     if (items.length == 1) {
       final it = items.first;
-      var label = it.comboNombre;
+      var label = it.nombreConOpcion;
       if (it.cafesAdicionales > 0) label += ' +${it.cafesAdicionales} café${it.cafesAdicionales > 1 ? 's' : ''}';
       if (it.cantidad > 1) label += ' ×${it.cantidad}';
       return label;
@@ -283,6 +289,7 @@ class Producto {
   Map<String, int> insumosConsumidos; // insumoId → qty
   Map<String, int> productosConsumidos; // productoId → qty
   bool activo;
+  List<String> opciones; // variantes seleccionables (ej: sabores)
 
   Producto({
     required this.id,
@@ -293,8 +300,10 @@ class Producto {
     Map<String, int>? insumosConsumidos,
     Map<String, int>? productosConsumidos,
     this.activo = true,
+    List<String>? opciones,
   })  : insumosConsumidos = insumosConsumidos ?? {},
-        productosConsumidos = productosConsumidos ?? {};
+        productosConsumidos = productosConsumidos ?? {},
+        opciones = opciones ?? [];
 
   String get displayNombre => tamanoBebida != null ? '$nombre · ${tamanoBebida!.label}' : nombre;
 
@@ -309,6 +318,7 @@ class Producto {
         if (insumosConsumidos.isNotEmpty) 'insumosConsumidos': insumosConsumidos,
         if (productosConsumidos.isNotEmpty) 'productosConsumidos': productosConsumidos,
         'activo': activo,
+        if (opciones.isNotEmpty) 'opciones': opciones,
       };
 
   factory Producto.fromJson(Map<String, dynamic> j) {
@@ -337,6 +347,7 @@ class Producto {
       insumosConsumidos: insumos,
       productosConsumidos: productos,
       activo: j['activo'] as bool? ?? true,
+      opciones: List<String>.from(j['opciones'] as List? ?? []),
     );
   }
 }

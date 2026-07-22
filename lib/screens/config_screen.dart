@@ -318,6 +318,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
   TamanoBebida? _tamano;
   late List<MapEntry<String, int>> _insumos; // insumoId → qty
   late List<MapEntry<String, int>> _productosC;
+  late List<String> _opciones;
 
   @override
   void initState() {
@@ -332,6 +333,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
         .entries.map((e) => MapEntry(e.key, e.value)).toList();
     _productosC = (widget.producto?.productosConsumidos ?? {})
         .entries.map((e) => MapEntry(e.key, e.value)).toList();
+    _opciones = List<String>.from(widget.producto?.opciones ?? []);
   }
 
   @override
@@ -356,7 +358,8 @@ class _ProductoDialogState extends State<_ProductoDialog> {
       widget.state.agregarProducto(nombre, precio, _categoria,
           tamanoBebida: _tamano,
           insumosConsumidos: insumos,
-          productosConsumidos: productosC);
+          productosConsumidos: productosC,
+          opciones: _opciones);
     } else {
       widget.state.editarProducto(widget.producto!.id,
           nombre: nombre,
@@ -366,7 +369,8 @@ class _ProductoDialogState extends State<_ProductoDialog> {
           updateTamano: true,
           insumosConsumidos: insumos,
           productosConsumidos: productosC,
-          updateConsumos: true);
+          updateConsumos: true,
+          opciones: _opciones);
     }
     Navigator.pop(context);
   }
@@ -571,6 +575,47 @@ class _ProductoDialogState extends State<_ProductoDialog> {
                 label: const Text('Agregar producto'),
               ),
             ],
+          // Opciones (sabores / variantes)
+          const SizedBox(height: 16),
+          const Text('Opciones (sabores / variantes)',
+              style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
+          const SizedBox(height: 4),
+          const Text('Si el producto tiene opciones, se pedirá seleccionar una al agregar al pedido.',
+              style: TextStyle(fontSize: 11, color: AppTheme.grey600)),
+          const SizedBox(height: 8),
+          ..._opciones.asMap().entries.map((e) {
+            final idx = e.key;
+            final ctrl = TextEditingController(text: e.value);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: ctrl,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        hintText: 'Ej: Caramelo',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      onChanged: (v) => _opciones[idx] = v,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18, color: AppTheme.red),
+                    onPressed: () => setState(() => _opciones.removeAt(idx)),
+                  ),
+                ],
+              ),
+            );
+          }),
+          TextButton.icon(
+            onPressed: () => setState(() => _opciones.add('')),
+            icon: const Icon(Icons.add, size: 16),
+            label: const Text('Agregar opción'),
+          ),
           ],
         ),
       ),
