@@ -68,7 +68,8 @@ class AppState extends ChangeNotifier {
   int get totalPropinas => ventas.fold(0, (s, v) => s + v.propina);
 
   int recaudadoPorMedio(MedioPago m) {
-    final ventas_ = ventas.where((v) => v.medioPago == m).fold(0, (s, v) => s + v.precioTotal);
+    final ventas_ = ventas.fold(0, (s, v) =>
+        s + v.pagos.where((p) => p.medioPago == m).fold(0, (ps, p) => ps + p.monto));
     final propinas = ventas.where((v) => v.propinaMedioPago == m).fold(0, (s, v) => s + v.propina);
     return ventas_ + propinas;
   }
@@ -241,6 +242,26 @@ class AppState extends ChangeNotifier {
         .map((d) => PedidoProveedor.fromJson(Map<String, dynamic>.from(d.data())))
         .toList();
     pedidos.sort((a, b) => b.fecha.compareTo(a.fecha));
+
+    // Mesas
+    final mesasSnap = await _db.collection('mesas').get();
+    mesas = mesasSnap.docs
+        .map((d) => Mesa.fromJson(Map<String, dynamic>.from(d.data())))
+        .toList();
+    mesas.sort((a, b) => a.nombre.compareTo(b.nombre));
+
+    // Cuentas abiertas
+    final cuentasSnap = await _db.collection('cuentas_mesas').get();
+    for (final d in cuentasSnap.docs) {
+      final cuenta = CuentaMesa.fromJson(Map<String, dynamic>.from(d.data()));
+      cuentasAbiertas[cuenta.mesaId] = cuenta;
+    }
+
+    // Salon config
+    final salonDoc = await _db.collection('config').doc('salon').get();
+    if (salonDoc.exists) {
+      salonConfig = SalonConfig.fromJson(Map<String, dynamic>.from(salonDoc.data()!));
+    }
   }
 
   Future<void> _migrateFromSharedPreferences() async {
@@ -513,16 +534,43 @@ class AppState extends ChangeNotifier {
     required MedioPago medioPago,
     int propina = 0,
     MedioPago? propinaMedioPago,
+    String? mesaNombre,
   }) {
     final total = items.fold(0, (s, it) => s + it.precioTotal);
     final venta = Venta(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       items: items,
       precioTotal: total,
-      medioPago: medioPago,
+      pagos: [Pago(medioPago: medioPago, monto: total)],
       timestamp: DateTime.now(),
       propina: propina,
       propinaMedioPago: propina > 0 ? (propinaMedioPago ?? medioPago) : null,
+      mesaNombre: mesaNombre,
+    );
+    ventas.add(venta);
+    _descontarStock(items);
+    _saveVentaToDb(venta);
+    _saveStockToDb();
+    notifyListeners();
+  }
+
+  void registrarVentaMesa({
+    required List<ItemCarrito> items,
+    required List<Pago> pagos,
+    required String mesaNombre,
+    int propina = 0,
+    MedioPago? propinaMedioPago,
+  }) {
+    final total = items.fold(0, (s, it) => s + it.precioTotal);
+    final venta = Venta(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      items: items,
+      precioTotal: total,
+      pagos: pagos,
+      timestamp: DateTime.now(),
+      propina: propina,
+      propinaMedioPago: propina > 0 ? propinaMedioPago : null,
+      mesaNombre: mesaNombre,
     );
     ventas.add(venta);
     _descontarStock(items);
@@ -539,10 +587,11 @@ class AppState extends ChangeNotifier {
       id: v.id,
       items: v.items,
       precioTotal: v.precioTotal,
-      medioPago: nuevo,
+      pagos: [Pago(medioPago: nuevo, monto: v.precioTotal)],
       timestamp: v.timestamp,
       propina: v.propina,
       propinaMedioPago: v.propinaMedioPago,
+      mesaNombre: v.mesaNombre,
     );
     _saveVentaToDb(ventas[idx]);
     notifyListeners();
@@ -556,12 +605,124 @@ class AppState extends ChangeNotifier {
       id: v.id,
       items: v.items,
       precioTotal: v.precioTotal,
-      medioPago: v.medioPago,
+      pagos: v.pagos,
       timestamp: v.timestamp,
       propina: propina,
       propinaMedioPago: propina > 0 ? propinaMedioPago : null,
+      mesaNombre: v.mesaNombre,
     );
     _saveVentaToDb(ventas[idx]);
+    notifyListeners();
+  }
+
+  // ── Mesas CRUD ────────────────────────────────────────────────────────────
+
+  List<Mesa> mesas = [];
+  Map<String, CuentaMesa> cuentasAbiertas = {}; // mesaId → cuenta
+  SalonConfig salonConfig = SalonConfig();
+
+  EstadoCuenta? estadoCuenta(String mesaId) => cuentasAbiertas[mesaId]?.estado;
+
+  CuentaMesa? cuentaDe(String mesaId) => cuentasAbiertas[mesaId];
+
+  Future<void> guardarSalonConfig(SalonConfig config) async {
+    salonConfig = config;
+    await _db.collection('config').doc('salon').set(config.toJson());
+    notifyListeners();
+  }
+
+  Future<void> agregarMesa(Mesa mesa) async {
+    mesas.add(mesa);
+    mesas.sort((a, b) => a.nombre.compareTo(b.nombre));
+    await _db.collection('mesas').doc(mesa.id).set(mesa.toJson());
+    notifyListeners();
+  }
+
+  Future<void> editarMesa(Mesa mesa) async {
+    final idx = mesas.indexWhere((m) => m.id == mesa.id);
+    if (idx != -1) mesas[idx] = mesa;
+    await _db.collection('mesas').doc(mesa.id).set(mesa.toJson());
+    notifyListeners();
+  }
+
+  Future<void> eliminarMesa(String id) async {
+    mesas.removeWhere((m) => m.id == id);
+    cuentasAbiertas.remove(id);
+    await _db.collection('mesas').doc(id).delete();
+    await _db.collection('cuentas_mesas').doc(id).delete();
+    notifyListeners();
+  }
+
+  Future<void> actualizarPosicionMesa(String id, double x, double y) async {
+    final idx = mesas.indexWhere((m) => m.id == id);
+    if (idx == -1) return;
+    mesas[idx].x = x;
+    mesas[idx].y = y;
+    await _db.collection('mesas').doc(id).update({'x': x, 'y': y});
+    notifyListeners();
+  }
+
+  Future<void> abrirCuenta(String mesaId, int cantidadPersonas) async {
+    if (cuentasAbiertas.containsKey(mesaId)) return;
+    final cuenta = CuentaMesa(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      mesaId: mesaId,
+      apertura: DateTime.now(),
+      cantidadPersonas: cantidadPersonas,
+    );
+    cuentasAbiertas[mesaId] = cuenta;
+    await _db.collection('cuentas_mesas').doc(mesaId).set(cuenta.toJson());
+    notifyListeners();
+  }
+
+  Future<void> agregarItemACuenta(String mesaId, ItemCarrito item) async {
+    final cuenta = cuentasAbiertas[mesaId];
+    if (cuenta == null) return;
+    cuenta.items.add(item);
+    await _db.collection('cuentas_mesas').doc(mesaId).set(cuenta.toJson());
+    notifyListeners();
+  }
+
+  Future<void> quitarItemDeCuenta(String mesaId, int index) async {
+    final cuenta = cuentasAbiertas[mesaId];
+    if (cuenta == null || index >= cuenta.items.length) return;
+    cuenta.items.removeAt(index);
+    await _db.collection('cuentas_mesas').doc(mesaId).set(cuenta.toJson());
+    notifyListeners();
+  }
+
+  Future<void> pedirCuenta(String mesaId) async {
+    final cuenta = cuentasAbiertas[mesaId];
+    if (cuenta == null) return;
+    cuenta.estado = EstadoCuenta.esperandoCuenta;
+    await _db.collection('cuentas_mesas').doc(mesaId).update({'estado': EstadoCuenta.esperandoCuenta.index});
+    notifyListeners();
+  }
+
+  Future<void> cobrarCuenta({
+    required String mesaId,
+    required List<Pago> pagos,
+    int propina = 0,
+    MedioPago? propinaMedioPago,
+  }) async {
+    final cuenta = cuentasAbiertas[mesaId];
+    if (cuenta == null) return;
+    final mesa = mesas.firstWhere((m) => m.id == mesaId);
+    registrarVentaMesa(
+      items: List.from(cuenta.items),
+      pagos: pagos,
+      mesaNombre: mesa.nombre,
+      propina: propina,
+      propinaMedioPago: propinaMedioPago,
+    );
+    cuentasAbiertas.remove(mesaId);
+    await _db.collection('cuentas_mesas').doc(mesaId).delete();
+    notifyListeners();
+  }
+
+  Future<void> cancelarCuenta(String mesaId) async {
+    cuentasAbiertas.remove(mesaId);
+    await _db.collection('cuentas_mesas').doc(mesaId).delete();
     notifyListeners();
   }
 

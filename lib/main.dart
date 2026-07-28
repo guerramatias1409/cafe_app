@@ -11,6 +11,7 @@ import 'screens/resumen_screen.dart';
 import 'screens/historial_screen.dart';
 import 'screens/config_screen.dart';
 import 'screens/compras_screen.dart';
+import 'screens/mesas_screen.dart';
 import 'theme.dart';
 
 void main() async {
@@ -63,6 +64,7 @@ class _ShellState extends State<_Shell> {
   int _idx = 0;
 
   static const _screens = [
+    MesasScreen(),
     VentasScreen(),
     StockScreen(),
     ComprasScreen(),
@@ -71,8 +73,9 @@ class _ShellState extends State<_Shell> {
     ConfigScreen(),
   ];
 
-  static const _labels = ['Ventas', 'Stock', 'Compras', 'Resumen', 'Historial', 'Config'];
+  static const _labels = ['Mesas', 'Ventas', 'Stock', 'Compras', 'Resumen', 'Historial', 'Config'];
   static const _icons = [
+    Icons.table_restaurant_outlined,
     Icons.point_of_sale_outlined,
     Icons.inventory_2_outlined,
     Icons.shopping_bag_outlined,
@@ -81,6 +84,7 @@ class _ShellState extends State<_Shell> {
     Icons.tune_outlined,
   ];
   static const _activeIcons = [
+    Icons.table_restaurant,
     Icons.point_of_sale,
     Icons.inventory_2,
     Icons.shopping_bag,
@@ -130,7 +134,7 @@ class _ShellState extends State<_Shell> {
         onDestinationSelected: (i) => setState(() => _idx = i),
         destinations: List.generate(6, (i) {
           // Badge de alerta en Stock (índice 1) cuando hay stock bajo mínimo
-          final needsBadge = i == 1 && state.hayStockBajoMinimo;
+          final needsBadge = i == 2 && state.hayStockBajoMinimo;
           return NavigationDestination(
             icon: needsBadge
                 ? Badge(

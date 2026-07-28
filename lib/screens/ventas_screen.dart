@@ -70,7 +70,7 @@ class _VentasScreenState extends State<VentasScreen> {
         children: [
           Expanded(
             flex: 3,
-            child: _SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
+            child: SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -99,7 +99,7 @@ class _VentasScreenState extends State<VentasScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
+          SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
           if (_carrito.isNotEmpty) ...[
             const SizedBox(height: 24),
             _CarritoPanel(
@@ -171,18 +171,18 @@ class _VentasScreenState extends State<VentasScreen> {
 // PANEL SELECTOR — VISTA POR CATEGORÍAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _SelectorPanel extends StatefulWidget {
+class SelectorPanel extends StatefulWidget {
   final ValueChanged<ItemCarrito> onAgregar;
   final AppState state;
   final List<ItemCarrito> enCarrito;
 
-  const _SelectorPanel({required this.onAgregar, required this.state, required this.enCarrito});
+  const SelectorPanel({super.key, required this.onAgregar, required this.state, required this.enCarrito});
 
   @override
-  State<_SelectorPanel> createState() => _SelectorPanelState();
+  State<SelectorPanel> createState() => _SelectorPanelState();
 }
 
-class _SelectorPanelState extends State<_SelectorPanel> {
+class _SelectorPanelState extends State<SelectorPanel> {
   // id (combo o producto) → cantidad seleccionada
   final Map<String, int> _cantidades = {};
 

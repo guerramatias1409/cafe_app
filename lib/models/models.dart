@@ -167,50 +167,78 @@ extension MedioPagoLabel on MedioPago {
   }
 }
 
+// ─── Pago ────────────────────────────────────────────────────────────────────
+
+class Pago {
+  final MedioPago medioPago;
+  final int monto;
+
+  const Pago({required this.medioPago, required this.monto});
+
+  Map<String, dynamic> toJson() => {'medioPago': medioPago.index, 'monto': monto};
+
+  factory Pago.fromJson(Map<String, dynamic> j) =>
+      Pago(medioPago: MedioPago.values[j['medioPago']], monto: j['monto']);
+}
+
 // ─── Venta ────────────────────────────────────────────────────────────────────
 
 class Venta {
   final String id;
-  final List<ItemCarrito> items; // uno o más ítems
+  final List<ItemCarrito> items;
   final int precioTotal;
-  final MedioPago medioPago;
+  final List<Pago> pagos; // uno o más pagos, suma == precioTotal
   final DateTime timestamp;
   final int propina;
-  final MedioPago? propinaMedioPago; // null si propina == 0
+  final MedioPago? propinaMedioPago;
+  final String? mesaNombre; // null para ventas directas
 
   Venta({
     required this.id,
     required this.items,
     required this.precioTotal,
-    required this.medioPago,
+    required this.pagos,
     required this.timestamp,
     this.propina = 0,
     this.propinaMedioPago,
+    this.mesaNombre,
   });
 
-  // Helpers para retrocompatibilidad en historial/resumen
+  // Medio de pago principal (para compatibilidad con código existente)
+  MedioPago get medioPago => pagos.first.medioPago;
+
   String get resumenCorto {
+    final prefix = mesaNombre != null ? '$mesaNombre · ' : '';
     if (items.length == 1) {
       final it = items.first;
       var label = it.nombreConOpcion;
       if (it.cafesAdicionales > 0) label += ' +${it.cafesAdicionales} café${it.cafesAdicionales > 1 ? 's' : ''}';
       if (it.cantidad > 1) label += ' ×${it.cantidad}';
-      return label;
+      return '$prefix$label';
     }
-    return '${items.length} ítems';
+    return '$prefix${items.length} ítems';
   }
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'items': items.map((i) => i.toJson()).toList(),
         'precioTotal': precioTotal,
-        'medioPago': medioPago.index,
+        'pagos': pagos.map((p) => p.toJson()).toList(),
         'timestamp': timestamp.toIso8601String(),
         if (propina > 0) 'propina': propina,
         if (propinaMedioPago != null) 'propinaMedioPago': propinaMedioPago!.index,
+        if (mesaNombre != null) 'mesaNombre': mesaNombre,
       };
 
   factory Venta.fromJson(Map<String, dynamic> j) {
+    List<Pago> parsePagos() {
+      if (j['pagos'] != null) {
+        return (j['pagos'] as List).map((p) => Pago.fromJson(Map<String, dynamic>.from(p))).toList();
+      }
+      // Retrocompat: ventas antiguas con medioPago único
+      return [Pago(medioPago: MedioPago.values[j['medioPago']], monto: j['precioTotal'])];
+    }
+
     // Migración de ventas antiguas (formato de un solo combo)
     if (j.containsKey('comboId')) {
       return Venta(
@@ -224,20 +252,146 @@ class Venta {
           )
         ],
         precioTotal: j['precioTotal'],
-        medioPago: MedioPago.values[j['medioPago']],
+        pagos: [Pago(medioPago: MedioPago.values[j['medioPago']], monto: j['precioTotal'])],
         timestamp: DateTime.parse(j['timestamp']),
       );
     }
     return Venta(
       id: j['id'],
-      items: (j['items'] as List).map((i) => ItemCarrito.fromJson(i)).toList(),
+      items: (j['items'] as List).map((i) => ItemCarrito.fromJson(Map<String, dynamic>.from(i))).toList(),
       precioTotal: j['precioTotal'],
-      medioPago: MedioPago.values[j['medioPago']],
+      pagos: parsePagos(),
       timestamp: DateTime.parse(j['timestamp']),
       propina: j['propina'] ?? 0,
       propinaMedioPago: j['propinaMedioPago'] != null ? MedioPago.values[j['propinaMedioPago']] : null,
+      mesaNombre: j['mesaNombre'],
     );
   }
+}
+
+// ─── Salón config ────────────────────────────────────────────────────────────
+
+enum SalonShape { rectangulo, L, U }
+
+extension SalonShapeLabel on SalonShape {
+  String get label {
+    switch (this) {
+      case SalonShape.rectangulo: return 'Rectángulo';
+      case SalonShape.L: return 'Forma L';
+      case SalonShape.U: return 'Forma U';
+    }
+  }
+}
+
+class SalonConfig {
+  SalonShape shape;
+  double aspectRatio; // ancho/alto del canvas (ej. 1.6 = landscape)
+  // Para formas L y U: fracción del lado donde empieza el recorte (0.0–1.0)
+  double cutoutX; // desde qué fracción del ancho empieza el recorte (L) o el centro (U)
+  double cutoutY; // desde qué fracción del alto empieza el recorte
+
+  SalonConfig({
+    this.shape = SalonShape.rectangulo,
+    this.aspectRatio = 1.6,
+    this.cutoutX = 0.5,
+    this.cutoutY = 0.5,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'shape': shape.index,
+        'aspectRatio': aspectRatio,
+        'cutoutX': cutoutX,
+        'cutoutY': cutoutY,
+      };
+
+  factory SalonConfig.fromJson(Map<String, dynamic> j) => SalonConfig(
+        shape: SalonShape.values[j['shape'] ?? 0],
+        aspectRatio: (j['aspectRatio'] as num?)?.toDouble() ?? 1.6,
+        cutoutX: (j['cutoutX'] as num?)?.toDouble() ?? 0.5,
+        cutoutY: (j['cutoutY'] as num?)?.toDouble() ?? 0.5,
+      );
+}
+
+// ─── Mesa ─────────────────────────────────────────────────────────────────────
+
+enum MesaForma { circulo, cuadrado, rectangulo }
+
+class Mesa {
+  final String id;
+  String nombre;
+  int capacidad;
+  double x; // posición relativa 0.0–1.0 en el canvas
+  double y;
+  MesaForma forma;
+
+  Mesa({
+    required this.id,
+    required this.nombre,
+    this.capacidad = 4,
+    this.x = 0.5,
+    this.y = 0.5,
+    this.forma = MesaForma.circulo,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'nombre': nombre,
+        'capacidad': capacidad,
+        'x': x,
+        'y': y,
+        'forma': forma.index,
+      };
+
+  factory Mesa.fromJson(Map<String, dynamic> j) => Mesa(
+        id: j['id'],
+        nombre: j['nombre'],
+        capacidad: j['capacidad'] ?? 4,
+        x: (j['x'] as num).toDouble(),
+        y: (j['y'] as num).toDouble(),
+        forma: MesaForma.values[j['forma'] ?? 0],
+      );
+}
+
+// ─── Cuenta de mesa ───────────────────────────────────────────────────────────
+
+enum EstadoCuenta { abierta, esperandoCuenta }
+
+class CuentaMesa {
+  final String id;
+  final String mesaId;
+  List<ItemCarrito> items;
+  final DateTime apertura;
+  int cantidadPersonas;
+  EstadoCuenta estado;
+
+  CuentaMesa({
+    required this.id,
+    required this.mesaId,
+    List<ItemCarrito>? items,
+    required this.apertura,
+    this.cantidadPersonas = 1,
+    this.estado = EstadoCuenta.abierta,
+  }) : items = items ?? [];
+
+  int get total => items.fold(0, (s, i) => s + i.precioUnitario * i.cantidad);
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'mesaId': mesaId,
+        'items': items.map((i) => i.toJson()).toList(),
+        'apertura': apertura.toIso8601String(),
+        'cantidadPersonas': cantidadPersonas,
+        'estado': estado.index,
+      };
+
+  factory CuentaMesa.fromJson(Map<String, dynamic> j) => CuentaMesa(
+        id: j['id'],
+        mesaId: j['mesaId'],
+        items: (j['items'] as List).map((i) => ItemCarrito.fromJson(Map<String, dynamic>.from(i))).toList(),
+        apertura: DateTime.parse(j['apertura']),
+        cantidadPersonas: j['cantidadPersonas'] ?? 1,
+        estado: EstadoCuenta.values[j['estado'] ?? 0],
+      );
 }
 
 // ─── Categoría de producto ────────────────────────────────────────────────────
