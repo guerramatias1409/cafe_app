@@ -1047,84 +1047,86 @@ class _BarraAcciones extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
-        color: AppTheme.white,
-        border: Border(top: BorderSide(color: AppTheme.grey300)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Total
-          Row(
-            children: [
-              const Text('Total', style: TextStyle(fontSize: 15, color: AppTheme.grey600)),
-              const Spacer(),
-              Text(
-                moneda.format(total),
-                style: const TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.w700, color: AppTheme.brownDark),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Botones
-          Row(
-            children: [
-              // Cancelar
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.red,
-                  side: const BorderSide(color: AppTheme.red),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: const BoxDecoration(
+          color: AppTheme.white,
+          border: Border(top: BorderSide(color: AppTheme.grey300)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Total
+            Row(
+              children: [
+                const Text('Total', style: TextStyle(fontSize: 15, color: AppTheme.grey600)),
+                const Spacer(),
+                Text(
+                  moneda.format(total),
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.w700, color: AppTheme.brownDark),
                 ),
-                onPressed: onCancelar,
-                child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
-              ),
-              const SizedBox(width: 8),
-              // Agregar
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.caramel,
-                  side: const BorderSide(color: AppTheme.caramel),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                icon: Icon(mostrandoSelector ? Icons.keyboard_arrow_down : Icons.add, size: 16),
-                label: const Text('Agregar', style: TextStyle(fontSize: 13)),
-                onPressed: onAgregar,
-              ),
-              const SizedBox(width: 8),
-              // Pedir cuenta (solo si no lo pidió)
-              if (cuenta.estado == EstadoCuenta.abierta)
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Botones
+            Row(
+              children: [
+                // Cancelar
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.brownDark,
-                    side: const BorderSide(color: AppTheme.grey300),
+                    foregroundColor: AppTheme.red,
+                    side: const BorderSide(color: AppTheme.red),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  onPressed: cuenta.items.isEmpty ? null : onPedirCuenta,
-                  child: const Text('Pedir cuenta', style: TextStyle(fontSize: 13)),
+                  onPressed: onCancelar,
+                  child: const Text('Cancelar', style: TextStyle(fontSize: 13)),
                 ),
-              const Spacer(),
-              // Cobrar
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.green,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                const SizedBox(width: 8),
+                // Agregar
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.caramel,
+                    side: const BorderSide(color: AppTheme.caramel),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(mostrandoSelector ? Icons.keyboard_arrow_down : Icons.add, size: 16),
+                  label: const Text('Agregar', style: TextStyle(fontSize: 13)),
+                  onPressed: onAgregar,
                 ),
-                onPressed: cuenta.items.isEmpty ? null : onCobrar,
-                child: const Text('Cobrar', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 8),
+                // Pedir cuenta (solo si no lo pidió)
+                if (cuenta.estado == EstadoCuenta.abierta)
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.brownDark,
+                      side: const BorderSide(color: AppTheme.grey300),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: cuenta.items.isEmpty ? null : onPedirCuenta,
+                    child: const Text('Pedir cuenta', style: TextStyle(fontSize: 13)),
+                  ),
+                const Spacer(),
+                // Cobrar
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.green,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                  onPressed: cuenta.items.isEmpty ? null : onCobrar,
+                  child: const Text('Cobrar', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
