@@ -6,6 +6,9 @@ import '../models/models.dart';
 import '../providers/app_state.dart';
 import '../theme.dart';
 import '../widgets/print_dialog.dart';
+import '../utils/csv_download_stub.dart'
+    if (dart.library.html) '../utils/csv_download_web.dart'
+    if (dart.library.io) '../utils/csv_download_io.dart';
 
 final _moneda = NumberFormat.currency(locale: 'es_AR', symbol: '\$', decimalDigits: 0);
 
@@ -17,7 +20,7 @@ class HistorialScreen extends StatefulWidget {
 }
 
 class _HistorialScreenState extends State<HistorialScreen> {
-  int _tab = 0; // 0 = ventas, 1 = reporte
+  int _tab = 0; // 0 = ventas, 1 = reporte, 2 = exportar csv
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +45,9 @@ class _HistorialScreenState extends State<HistorialScreen> {
               const SizedBox(width: 8),
               _TabChip(label: 'Por producto', selected: _tab == 1,
                   onTap: () => setState(() => _tab = 1)),
+              const SizedBox(width: 8),
+              _TabChip(label: 'Exportar CSV', selected: _tab == 2,
+                  onTap: () => setState(() => _tab = 2)),
               const Spacer(),
               if (_tab == 0 && ventas.isNotEmpty) ...[
                 const Text('Total ',
@@ -67,7 +73,9 @@ class _HistorialScreenState extends State<HistorialScreen> {
                       state: state,
                       onEliminar: (v) => _confirmarEliminar(context, state, v),
                     ))
-              : _ReporteProductos(ventas: state.ventas),
+              : _tab == 1
+                  ? _ReporteProductos(ventas: state.ventas)
+                  : _ExportarCsv(ventas: state.ventas),
         ),
       ],
     );
@@ -1145,6 +1153,272 @@ class _ProductoReporteCard extends StatelessWidget {
               backgroundColor: AppTheme.grey300,
               valueColor: AlwaysStoppedAnimation<Color>(
                   rank == 1 ? AppTheme.caramel : AppTheme.brownMed),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Exportar CSV ──────────────────────────────────────────────────────────────
+
+class _ExportarCsv extends StatefulWidget {
+  final List<Venta> ventas;
+  const _ExportarCsv({required this.ventas});
+
+  @override
+  State<_ExportarCsv> createState() => _ExportarCsvState();
+}
+
+class _ExportarCsvState extends State<_ExportarCsv> {
+  DateTime? _desde;
+  DateTime? _hasta;
+  bool _exportando = false;
+
+  static final _fmtFecha = DateFormat('dd/MM/yyyy');
+  static final _fmtHora  = DateFormat('HH:mm');
+
+  static DateTime _arDt(DateTime dt) =>
+      dt.toUtc().subtract(const Duration(hours: 3));
+
+  List<Venta> get _ventasFiltradas {
+    return widget.ventas.where((v) {
+      final ar = _arDt(v.timestamp);
+      final fecha = DateTime(ar.year, ar.month, ar.day);
+      if (_desde != null && fecha.isBefore(DateTime(_desde!.year, _desde!.month, _desde!.day))) return false;
+      if (_hasta != null && fecha.isAfter(DateTime(_hasta!.year, _hasta!.month, _hasta!.day))) return false;
+      return true;
+    }).toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+
+  Future<void> _pickRango() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+      initialDateRange: (_desde != null && _hasta != null)
+          ? DateTimeRange(start: _desde!, end: _hasta!)
+          : null,
+      locale: const Locale('es'),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: Theme.of(context).colorScheme.copyWith(
+            primary: AppTheme.caramel,
+            onPrimary: Colors.white,
+            surface: AppTheme.white,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        _desde = picked.start;
+        _hasta = picked.end;
+      });
+    }
+  }
+
+  String _csvEscape(String value) {
+    if (value.contains(',') || value.contains('"') || value.contains('\n')) {
+      return '"${value.replaceAll('"', '""')}"';
+    }
+    return value;
+  }
+
+  String _generarCsv(List<Venta> ventas) {
+    final buf = StringBuffer();
+    buf.write('﻿'); // BOM UTF-8 para que Excel detecte la codificación
+    buf.writeln('N° Venta,Fecha,Hora,Producto,Cantidad,Precio Unitario,Subtotal,Total Venta');
+    for (var i = 0; i < ventas.length; i++) {
+      final venta = ventas[i];
+      final ar    = _arDt(venta.timestamp);
+      final fecha = _fmtFecha.format(ar);
+      final hora  = _fmtHora.format(ar);
+      for (var j = 0; j < venta.items.length; j++) {
+        final item = venta.items[j];
+        final precioUnitario = item.cantidad > 0 ? item.precioTotal ~/ item.cantidad : 0;
+        // Total Venta solo en la primera fila de cada venta, el resto en blanco
+        final totalCelda = j == venta.items.length - 1 ? venta.precioTotal.toString() : '';
+        buf.writeln([
+          j == 0 ? (i + 1).toString() : '',
+          _csvEscape(fecha),
+          _csvEscape(hora),
+          _csvEscape(item.nombreConOpcion),
+          item.cantidad.toString(),
+          precioUnitario.toString(),
+          item.precioTotal.toString(),
+          totalCelda,
+        ].join(','));
+      }
+    }
+    return buf.toString();
+  }
+
+  Future<void> _exportar() async {
+    final ventas = _ventasFiltradas;
+    if (ventas.isEmpty) return;
+    setState(() => _exportando = true);
+    try {
+      final csv = _generarCsv(ventas);
+      final nombre = _desde != null && _hasta != null
+          ? 'ventas_${DateFormat('ddMMyyyy').format(_desde!)}_${DateFormat('ddMMyyyy').format(_hasta!)}.csv'
+          : 'ventas_${DateFormat('ddMMyyyy').format(DateTime.now())}.csv';
+      await descargarCsv(csv, nombre);
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ventas = _ventasFiltradas;
+    final filas = ventas.fold(0, (s, v) => s + v.items.length);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Exportar ventas a CSV',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppTheme.brownDark),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Una fila por producto vendido. Compatible con Excel y Google Sheets.',
+            style: TextStyle(fontSize: 13, color: AppTheme.grey600),
+          ),
+          const SizedBox(height: 20),
+
+          // Selector de rango
+          const Text('Rango de fechas',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.brownDark)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _DateButton(
+                label: _desde != null && _hasta != null
+                    ? '${_fmtFecha.format(_desde!)} – ${_fmtFecha.format(_hasta!)}'
+                    : 'Seleccionar rango',
+                onTap: _pickRango,
+                active: _desde != null,
+              ),
+              if (_desde != null || _hasta != null) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => setState(() { _desde = null; _hasta = null; }),
+                  child: const Icon(Icons.close, size: 18, color: AppTheme.grey600),
+                ),
+              ],
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Columnas del reporte
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppTheme.grey100,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.grey300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Columnas del reporte',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.grey600)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final col in ['N° Venta', 'Fecha', 'Hora', 'Producto', 'Cantidad', 'Precio Unitario', 'Subtotal', 'Total Venta'])
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.cream,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppTheme.caramel.withOpacity(0.4)),
+                        ),
+                        child: Text(col,
+                            style: const TextStyle(
+                                fontSize: 12, color: AppTheme.brownMed, fontWeight: FontWeight.w500)),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Resumen
+          if (ventas.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.grey300),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${ventas.length}',
+                            style: const TextStyle(
+                                fontSize: 22, fontWeight: FontWeight.w800, color: AppTheme.brownDark)),
+                        const Text('ventas', style: TextStyle(fontSize: 12, color: AppTheme.grey600)),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('$filas',
+                            style: const TextStyle(
+                                fontSize: 22, fontWeight: FontWeight.w800, color: AppTheme.brownDark)),
+                        const Text('filas en el CSV', style: TextStyle(fontSize: 12, color: AppTheme.grey600)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: ventas.isEmpty || _exportando ? null : _exportar,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.brownDark,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                disabledBackgroundColor: AppTheme.grey300,
+              ),
+              icon: _exportando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.download_rounded, color: Colors.white),
+              label: Text(
+                _exportando
+                    ? 'Generando...'
+                    : ventas.isEmpty
+                        ? 'Sin ventas en el rango seleccionado'
+                        : 'Descargar CSV  (${ventas.length} ventas · $filas filas)',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              ),
             ),
           ),
         ],

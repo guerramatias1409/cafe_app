@@ -51,7 +51,7 @@ class AppTheme {
         const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
       ),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: white,
       elevation: 0,
       shape: RoundedRectangleBorder(

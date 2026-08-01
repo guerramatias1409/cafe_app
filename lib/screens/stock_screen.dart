@@ -73,11 +73,13 @@ class _MiniField extends StatelessWidget {
     required this.label,
     required this.color,
     required this.onFocusLost,
+    this.focusNode,
   });
   final TextEditingController controller;
   final String label;
   final Color color;
   final VoidCallback onFocusLost;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +87,7 @@ class _MiniField extends StatelessWidget {
       onFocusChange: (hasFocus) { if (!hasFocus) onFocusLost(); },
       child: TextField(
         controller: controller,
+        focusNode: focusNode,
         keyboardType: TextInputType.number,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         textAlign: TextAlign.center,
@@ -125,6 +128,8 @@ class _StockRow extends StatefulWidget {
 
 class _StockRowState extends State<_StockRow> {
   late TextEditingController _minCtrl;
+  late TextEditingController _nivelCtrl;
+  final FocusNode _nivelFocus = FocusNode();
   bool _historialAbierto = false;
 
   @override
@@ -133,11 +138,24 @@ class _StockRowState extends State<_StockRow> {
     _minCtrl = TextEditingController(
       text: (widget.state.stockMinimoInsumos[widget.insumo.id] ?? 0).toString(),
     );
+    _nivelCtrl = TextEditingController(
+      text: widget.entry.actual.toString(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_StockRow old) {
+    super.didUpdateWidget(old);
+    if (!_nivelFocus.hasFocus) {
+      _nivelCtrl.text = widget.entry.actual.toString();
+    }
   }
 
   @override
   void dispose() {
     _minCtrl.dispose();
+    _nivelCtrl.dispose();
+    _nivelFocus.dispose();
     super.dispose();
   }
 
@@ -146,11 +164,24 @@ class _StockRowState extends State<_StockRow> {
     widget.state.setStockMinimoInsumo(widget.insumo.id, val);
   }
 
-  Color _stockColor(int actual, int inicial) {
-    if (inicial == 0) return AppTheme.grey600;
-    final pct = actual / inicial;
-    if (pct <= 0) return AppTheme.red;
-    if (pct <= 0.25) return Colors.orange;
+  void _saveNivel() {
+    final nuevo = int.tryParse(_nivelCtrl.text);
+    if (nuevo == null) {
+      _nivelCtrl.text = widget.entry.actual.toString();
+      return;
+    }
+    final delta = nuevo - widget.entry.actual;
+    if (delta == 0) return;
+    widget.state.agregarStockAjuste(
+      widget.insumo.id,
+      delta,
+      'Corrección de inventario',
+    );
+  }
+
+  Color _stockColor(int actual, int minimo) {
+    if (actual <= 0) return AppTheme.red;
+    if (minimo > 0 && actual <= minimo) return Colors.orange;
     return AppTheme.green;
   }
 
@@ -345,11 +376,10 @@ class _StockRowState extends State<_StockRow> {
   Widget build(BuildContext context) {
     final entry = widget.entry;
     final bajominimo = widget.state.stockBajoMinimo(widget.insumo.id);
-    final stockColor = entry.actual <= 0 && entry.inicial > 0
-        ? AppTheme.red
-        : bajominimo
-            ? Colors.orange
-            : _stockColor(entry.actual, entry.inicial);
+    final minimo = widget.state.stockMinimoInsumos[widget.insumo.id] ?? 0;
+    final stockColor = bajominimo
+        ? Colors.orange
+        : _stockColor(entry.actual, minimo);
     final ajustes = widget.state.ajustesParaInsumo(widget.insumo.id);
     final fmt = DateFormat('dd/MM HH:mm');
 
@@ -360,7 +390,7 @@ class _StockRowState extends State<_StockRow> {
         border: Border.all(
           color: bajominimo
               ? Colors.orange.withOpacity(0.6)
-              : (entry.actual <= 0 && entry.inicial > 0
+              : (entry.actual <= 0
                   ? AppTheme.red.withOpacity(0.4)
                   : AppTheme.grey300),
         ),
@@ -390,14 +420,15 @@ class _StockRowState extends State<_StockRow> {
                     ],
                   ),
                 ),
-                // Inicial (solo lectura)
+                // Nivel editable
                 Expanded(
-                  flex: 1,
-                  child: Column(
-                    children: [
-                      Text('${entry.inicial}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.blue)),
-                      const Text('inicial', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
-                    ],
+                  flex: 2,
+                  child: _MiniField(
+                    controller: _nivelCtrl,
+                    focusNode: _nivelFocus,
+                    label: 'Nivel actual',
+                    color: AppTheme.blue,
+                    onFocusLost: _saveNivel,
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -569,7 +600,14 @@ class _ProductoStockRow extends StatefulWidget {
 
 class _ProductoStockRowState extends State<_ProductoStockRow> {
   late TextEditingController _minCtrl;
+  late TextEditingController _nivelCtrl;
+  final FocusNode _nivelFocus = FocusNode();
   bool _historialAbierto = false;
+
+  int get _actual {
+    final ajuste = widget.state.ajusteTotalProducto(widget.producto.id);
+    return widget.inicial + ajuste - widget.vendidos;
+  }
 
   @override
   void initState() {
@@ -577,17 +615,43 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
     _minCtrl = TextEditingController(
       text: (widget.state.stockMinimoProductos[widget.producto.id] ?? 0).toString(),
     );
+    _nivelCtrl = TextEditingController(text: _actual.toString());
+  }
+
+  @override
+  void didUpdateWidget(_ProductoStockRow old) {
+    super.didUpdateWidget(old);
+    if (!_nivelFocus.hasFocus) {
+      _nivelCtrl.text = _actual.toString();
+    }
   }
 
   @override
   void dispose() {
     _minCtrl.dispose();
+    _nivelCtrl.dispose();
+    _nivelFocus.dispose();
     super.dispose();
   }
 
   void _saveMin() {
     final val = int.tryParse(_minCtrl.text) ?? 0;
     widget.state.setStockMinimoProducto(widget.producto.id, val);
+  }
+
+  void _saveNivel() {
+    final nuevo = int.tryParse(_nivelCtrl.text);
+    if (nuevo == null) {
+      _nivelCtrl.text = _actual.toString();
+      return;
+    }
+    final delta = nuevo - _actual;
+    if (delta == 0) return;
+    widget.state.agregarStockAjusteProducto(
+      widget.producto.id,
+      delta,
+      'Corrección de inventario',
+    );
   }
 
   Color _stockColor(int actual, int inicial) {
@@ -770,11 +834,9 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
     final ajuste = widget.state.ajusteTotalProducto(widget.producto.id);
     final actual = widget.inicial + ajuste - widget.vendidos;
     final bajominimo = widget.state.stockProductoBajoMinimo(widget.producto.id);
-    final stockColor = actual <= 0 && widget.inicial > 0
-        ? AppTheme.red
-        : bajominimo
-            ? Colors.orange
-            : _stockColor(actual, widget.inicial);
+    final stockColor = bajominimo
+        ? Colors.orange
+        : _stockColor(actual, widget.inicial);
     final ajustes = widget.state.ajustesParaProducto(widget.producto.id);
     final fmt = DateFormat('dd/MM HH:mm');
 
@@ -785,7 +847,7 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
         border: Border.all(
           color: bajominimo
               ? Colors.orange.withOpacity(0.6)
-              : (actual <= 0 && widget.inicial > 0
+              : (actual <= 0
                   ? AppTheme.red.withOpacity(0.4)
                   : AppTheme.grey300),
         ),
@@ -813,13 +875,15 @@ class _ProductoStockRowState extends State<_ProductoStockRow> {
                     ],
                   ),
                 ),
+                // Nivel editable
                 Expanded(
-                  flex: 1,
-                  child: Column(
-                    children: [
-                      Text('${widget.inicial}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.blue)),
-                      const Text('inicial', style: TextStyle(fontSize: 10, color: AppTheme.grey600)),
-                    ],
+                  flex: 2,
+                  child: _MiniField(
+                    controller: _nivelCtrl,
+                    focusNode: _nivelFocus,
+                    label: 'Nivel actual',
+                    color: AppTheme.blue,
+                    onFocusLost: _saveNivel,
                   ),
                 ),
                 const SizedBox(width: 4),

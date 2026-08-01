@@ -135,7 +135,20 @@ class AppState extends ChangeNotifier {
     try {
       final metaDoc = await _db.collection('config').doc('meta').get();
       if (!metaDoc.exists) {
-        await _migrateFromSharedPreferences();
+        // Before migrating, check if Firestore already has real data.
+        // This prevents wiping Firestore if 'meta' was accidentally deleted.
+        final stockDoc = await _db.collection('config').doc('stock').get();
+        final insumosDoc = await _db.collection('config').doc('insumos').get();
+        if (stockDoc.exists || insumosDoc.exists) {
+          debugPrint('AppState: meta ausente pero Firestore tiene datos — cargando sin migrar.');
+          await _db.collection('config').doc('meta').set({
+            'migratedAt': DateTime.now().toIso8601String(),
+            'version': '1.0',
+          });
+          await _loadFromFirestore();
+        } else {
+          await _migrateFromSharedPreferences();
+        }
       } else {
         await _loadFromFirestore();
       }
@@ -391,13 +404,16 @@ class AppState extends ChangeNotifier {
         'items': insumos.map((i) => i.toJson()).toList(),
       });
 
-  Future<void> _saveStockToDb() => _db.collection('config').doc('stock').set({
-        'insumos': stock.values.map((e) => e.toJson()).toList(),
-        'inicialProductos': stockInicialProductos,
-        'vendidosExtra': _stockVendidosProductosExtra,
-        'minimoInsumos': stockMinimoInsumos,
-        'minimoProductos': stockMinimoProductos,
-      });
+  Future<void> _saveStockToDb() {
+    if (isLoading) return Future.value();
+    return _db.collection('config').doc('stock').set({
+      'insumos': stock.values.map((e) => e.toJson()).toList(),
+      'inicialProductos': stockInicialProductos,
+      'vendidosExtra': _stockVendidosProductosExtra,
+      'minimoInsumos': stockMinimoInsumos,
+      'minimoProductos': stockMinimoProductos,
+    });
+  }
 
   Future<void> _savePreciosCompraToDb() =>
       _db.collection('config').doc('precios_compra').set(preciosCompra);
