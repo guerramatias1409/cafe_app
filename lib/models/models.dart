@@ -396,22 +396,33 @@ class CuentaMesa {
 
 // ─── Categoría de producto ────────────────────────────────────────────────────
 
+// Legacy enum — solo para migración de datos antiguos. No usar para lógica nueva.
 enum CategoriaProducto { cafeteria, deliciasDulces, salados, combos }
 
-extension CategoriaProductoLabel on CategoriaProducto {
-  String get label {
-    switch (this) {
-      case CategoriaProducto.cafeteria:
-        return 'Cafetería';
-      case CategoriaProducto.deliciasDulces:
-        return 'Delicias Dulces';
-      case CategoriaProducto.salados:
-        return 'Salados';
-      case CategoriaProducto.combos:
-        return 'Combos';
-    }
-  }
+/// IDs de las categorías built-in, en el mismo orden que el enum legacy.
+const kLegacyCategoriaIds = ['cafeteria', 'delicias_dulces', 'salados', 'combos'];
+
+class CategoriaModel {
+  final String id;
+  String nombre;
+  int orden;
+
+  CategoriaModel({required this.id, required this.nombre, this.orden = 0});
+
+  Map<String, dynamic> toJson() => {'id': id, 'nombre': nombre, 'orden': orden};
+
+  factory CategoriaModel.fromJson(Map<String, dynamic> j) => CategoriaModel(
+        id: j['id'],
+        nombre: j['nombre'],
+        orden: (j['orden'] as num?)?.toInt() ?? 0,
+      );
 }
+
+List<CategoriaModel> kDefaultCategorias() => [
+      CategoriaModel(id: 'cafeteria',      nombre: 'Cafetería',      orden: 0),
+      CategoriaModel(id: 'delicias_dulces', nombre: 'Delicias Dulces', orden: 1),
+      CategoriaModel(id: 'salados',        nombre: 'Salados',        orden: 2),
+    ];
 
 // ─── Tamaño de bebida ─────────────────────────────────────────────────────────
 
@@ -438,7 +449,7 @@ class Producto {
   final String id;
   String nombre;
   int precio;
-  CategoriaProducto categoria;
+  String categoriaId; // id de CategoriaModel
   TamanoBebida? tamanoBebida; // solo relevante para Cafetería
   Map<String, int> insumosConsumidos; // insumoId → qty
   Map<String, int> productosConsumidos; // productoId → qty
@@ -449,7 +460,7 @@ class Producto {
     required this.id,
     required this.nombre,
     required this.precio,
-    required this.categoria,
+    required this.categoriaId,
     this.tamanoBebida,
     Map<String, int>? insumosConsumidos,
     Map<String, int>? productosConsumidos,
@@ -467,7 +478,7 @@ class Producto {
         'id': id,
         'nombre': nombre,
         'precio': precio,
-        'categoria': categoria.index,
+        'categoriaId': categoriaId,
         if (tamanoBebida != null) 'tamanoBebida': tamanoBebida!.index,
         if (insumosConsumidos.isNotEmpty) 'insumosConsumidos': insumosConsumidos,
         if (productosConsumidos.isNotEmpty) 'productosConsumidos': productosConsumidos,
@@ -479,7 +490,6 @@ class Producto {
     final insumos = <String, int>{};
     if (j['insumosConsumidos'] != null) {
       (j['insumosConsumidos'] as Map<String, dynamic>).forEach((k, v) {
-        // Migración: clave puede ser índice int (legacy) o id string (nuevo)
         final id = int.tryParse(k) != null
             ? (int.parse(k) < kLegacyInsumoIds.length
                 ? kLegacyInsumoIds[int.parse(k)]
@@ -492,11 +502,21 @@ class Producto {
     if (j['productosConsumidos'] != null) {
       (j['productosConsumidos'] as Map<String, dynamic>).forEach((k, v) => productos[k] = v as int);
     }
+
+    // Migración: campo antiguo 'categoria' (int enum) → nuevo 'categoriaId' (string)
+    String categoriaId;
+    if (j['categoriaId'] != null) {
+      categoriaId = j['categoriaId'] as String;
+    } else {
+      final idx = (j['categoria'] as num?)?.toInt() ?? 0;
+      categoriaId = idx < kLegacyCategoriaIds.length ? kLegacyCategoriaIds[idx] : 'cafeteria';
+    }
+
     return Producto(
       id: j['id'],
       nombre: j['nombre'],
       precio: j['precio'],
-      categoria: CategoriaProducto.values[j['categoria'] ?? 0],
+      categoriaId: categoriaId,
       tamanoBebida: j['tamanoBebida'] != null ? TamanoBebida.values[j['tamanoBebida']] : null,
       insumosConsumidos: insumos,
       productosConsumidos: productos,
@@ -630,6 +650,53 @@ class PedidoProveedor {
         itemsRecibidos: (j['itemsRecibidos'] as List?)?.map((e) => e as int).toSet(),
         pagado: j['pagado'] as bool? ?? false,
         fechaPago: j['fechaPago'] != null ? DateTime.parse(j['fechaPago']) : null,
+      );
+}
+
+// ─── Cambio de precio ─────────────────────────────────────────────────────────
+
+enum TipoCambioPrecio { producto, combo }
+
+class CambioPrecio {
+  final String id;
+  final String referenciaId;
+  final String nombre;
+  final TipoCambioPrecio tipo;
+  final int precioAnterior;
+  final int precioNuevo;
+  final DateTime timestamp;
+
+  CambioPrecio({
+    required this.id,
+    required this.referenciaId,
+    required this.nombre,
+    required this.tipo,
+    required this.precioAnterior,
+    required this.precioNuevo,
+    required this.timestamp,
+  });
+
+  double get porcentajeCambio =>
+      precioAnterior > 0 ? (precioNuevo - precioAnterior) / precioAnterior * 100 : 0;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'referenciaId': referenciaId,
+        'nombre': nombre,
+        'tipo': tipo.index,
+        'precioAnterior': precioAnterior,
+        'precioNuevo': precioNuevo,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  factory CambioPrecio.fromJson(Map<String, dynamic> j) => CambioPrecio(
+        id: j['id'],
+        referenciaId: j['referenciaId'],
+        nombre: j['nombre'],
+        tipo: TipoCambioPrecio.values[j['tipo'] ?? 0],
+        precioAnterior: j['precioAnterior'],
+        precioNuevo: j['precioNuevo'],
+        timestamp: DateTime.parse(j['timestamp']),
       );
 }
 

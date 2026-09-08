@@ -20,6 +20,17 @@ class ConfigScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Categorías ─────────────────────────────────────────────────────
+          const SectionHeader('Categorías'),
+          const SizedBox(height: 4),
+          const Text(
+            'Las categorías aparecen en Ventas. Podés reordenarlas arrastrando.',
+            style: TextStyle(fontSize: 12, color: AppTheme.grey600),
+          ),
+          const SizedBox(height: 8),
+          _CategoriasManager(state: state),
+          const SizedBox(height: 32),
+
           // ── Insumos ────────────────────────────────────────────────────────
           const SectionHeader('Insumos'),
           const SizedBox(height: 8),
@@ -75,6 +86,17 @@ class ConfigScreen extends StatelessWidget {
           _ExtrasPedidoList(state: state),
           const SizedBox(height: 40),
 
+          // ── Historial de precios ────────────────────────────────────────────
+          const SectionHeader('Historial de precios'),
+          const SizedBox(height: 4),
+          const Text(
+            'Registro de todos los cambios de precio de productos y combos.',
+            style: TextStyle(fontSize: 12, color: AppTheme.grey600),
+          ),
+          const SizedBox(height: 8),
+          _HistorialPreciosList(state: state),
+          const SizedBox(height: 40),
+
           // ── Backup de datos ─────────────────────────────────────────────────
           const SectionHeader('Datos'),
           const SizedBox(height: 8),
@@ -126,22 +148,22 @@ class _ProductosList extends StatelessWidget {
       );
     }
 
-    // Agrupar por categoría, respetando el orden del enum
-    final grupos = <CategoriaProducto, List<Producto>>{};
+    // Agrupar por categoriaId, respetando el orden de state.categorias
+    final grupos = <String, List<Producto>>{};
     for (final p in state.productos) {
-      grupos.putIfAbsent(p.categoria, () => []).add(p);
+      grupos.putIfAbsent(p.categoriaId, () => []).add(p);
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: CategoriaProducto.values
-          .where((c) => grupos.containsKey(c))
-          .map((c) => _buildGrupo(context, c, grupos[c]!))
+      children: state.categorias
+          .where((c) => grupos.containsKey(c.id))
+          .map((c) => _buildGrupo(context, c, grupos[c.id]!))
           .toList(),
     );
   }
 
-  Widget _buildGrupo(BuildContext context, CategoriaProducto cat,
+  Widget _buildGrupo(BuildContext context, CategoriaModel cat,
       List<Producto> items) {
     final fmt = NumberFormat.currency(
         locale: 'es_AR', symbol: '\$', decimalDigits: 0);
@@ -151,7 +173,7 @@ class _ProductosList extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 14, bottom: 6),
           child: Text(
-            cat.label,
+            cat.nombre,
             style: const TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -314,7 +336,7 @@ class _ProductoDialog extends StatefulWidget {
 class _ProductoDialogState extends State<_ProductoDialog> {
   late final TextEditingController _nombreCtrl;
   late final TextEditingController _precioCtrl;
-  late CategoriaProducto _categoria;
+  late String _categoriaId;
   TamanoBebida? _tamano;
   late List<MapEntry<String, int>> _insumos; // insumoId → qty
   late List<MapEntry<String, int>> _productosC;
@@ -326,9 +348,12 @@ class _ProductoDialogState extends State<_ProductoDialog> {
     _nombreCtrl = TextEditingController(text: widget.producto?.nombre ?? '');
     _precioCtrl = TextEditingController(
         text: widget.producto?.precio.toString() ?? '');
-    _categoria = widget.producto?.categoria ?? CategoriaProducto.cafeteria;
+    final defaultCat = widget.state.categorias.isNotEmpty
+        ? widget.state.categorias.first.id
+        : 'cafeteria';
+    _categoriaId = widget.producto?.categoriaId ?? defaultCat;
     _tamano = widget.producto?.tamanoBebida ??
-        (_categoria == CategoriaProducto.cafeteria ? TamanoBebida.oz8 : null);
+        (_categoriaId == 'cafeteria' ? TamanoBebida.oz8 : null);
     _insumos = (widget.producto?.insumosConsumidos ?? {})
         .entries.map((e) => MapEntry(e.key, e.value)).toList();
     _productosC = (widget.producto?.productosConsumidos ?? {})
@@ -343,10 +368,12 @@ class _ProductoDialogState extends State<_ProductoDialog> {
     super.dispose();
   }
 
+  bool get _esCafeteria => _categoriaId == 'cafeteria';
+
   bool get _valido =>
       _nombreCtrl.text.trim().isNotEmpty &&
       int.tryParse(_precioCtrl.text) != null &&
-      (_categoria != CategoriaProducto.cafeteria || _tamano != null);
+      (!_esCafeteria || _tamano != null);
 
   void _guardar() {
     final nombre = _nombreCtrl.text.trim();
@@ -355,7 +382,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
     final insumos = Map.fromEntries(_insumos);
     final productosC = Map.fromEntries(_productosC);
     if (widget.producto == null) {
-      widget.state.agregarProducto(nombre, precio, _categoria,
+      widget.state.agregarProducto(nombre, precio, _categoriaId,
           tamanoBebida: _tamano,
           insumosConsumidos: insumos,
           productosConsumidos: productosC,
@@ -364,7 +391,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
       widget.state.editarProducto(widget.producto!.id,
           nombre: nombre,
           precio: precio,
-          categoria: _categoria,
+          categoriaId: _categoriaId,
           tamanoBebida: _tamano,
           updateTamano: true,
           insumosConsumidos: insumos,
@@ -378,11 +405,10 @@ class _ProductoDialogState extends State<_ProductoDialog> {
   @override
   Widget build(BuildContext context) {
     final esNuevo = widget.producto == null;
-    final esCafeteria = _categoria == CategoriaProducto.cafeteria;
     final productosDisponibles = widget.state.productos
         .where((p) =>
             p.id != widget.producto?.id &&
-            p.categoria != CategoriaProducto.cafeteria &&
+            p.categoriaId != 'cafeteria' &&
             !p.consumeItems)
         .toList();
 
@@ -412,9 +438,9 @@ class _ProductoDialogState extends State<_ProductoDialog> {
               onSubmitted: (_) => _guardar(),
             ),
             const SizedBox(height: 16),
-            // Selector de categoría
-            DropdownButtonFormField<CategoriaProducto>(
-              value: _categoria,
+            // Selector de categoría dinámico
+            DropdownButtonFormField<String>(
+              value: _categoriaId,
               decoration: InputDecoration(
                 labelText: 'Categoría',
                 border: OutlineInputBorder(
@@ -434,18 +460,16 @@ class _ProductoDialogState extends State<_ProductoDialog> {
                 filled: true,
                 fillColor: AppTheme.white,
               ),
-              items: CategoriaProducto.values
-                  .where((c) => c != CategoriaProducto.combos)
+              items: widget.state.categorias
                   .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(c.label,
+                        value: c.id,
+                        child: Text(c.nombre,
                             style: const TextStyle(fontSize: 14)),
                       ))
                   .toList(),
               onChanged: (v) => setState(() {
-                _categoria = v!;
-                // Al cambiar a Cafetería, asignar tamaño por defecto
-                if (v == CategoriaProducto.cafeteria) {
+                _categoriaId = v!;
+                if (_categoriaId == 'cafeteria') {
                   _tamano ??= TamanoBebida.oz8;
                 } else {
                   _tamano = null;
@@ -453,7 +477,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
               }),
             ),
             // Selector de tamaño — solo para Cafetería
-            if (esCafeteria) ...[
+            if (_esCafeteria) ...[
               const SizedBox(height: 16),
               const Text('Tamaño',
                   style: TextStyle(
@@ -508,10 +532,10 @@ class _ProductoDialogState extends State<_ProductoDialog> {
             // Insumos adicionales — disponible para todas las categorías
             const SizedBox(height: 20),
             Text(
-              esCafeteria ? 'Insumos adicionales' : 'Insumos',
+              _esCafeteria ? 'Insumos adicionales' : 'Insumos',
               style: const TextStyle(fontSize: 13, color: AppTheme.grey600),
             ),
-            if (esCafeteria)
+            if (_esCafeteria)
               const Padding(
                 padding: EdgeInsets.only(top: 2, bottom: 4),
                 child: Text(
@@ -550,7 +574,7 @@ class _ProductoDialogState extends State<_ProductoDialog> {
               );
             }),
             // Productos consumidos — solo para no Cafetería
-            if (!esCafeteria && productosDisponibles.isNotEmpty) ...[
+            if (!_esCafeteria && productosDisponibles.isNotEmpty) ...[
               const SizedBox(height: 12),
               const Text('Productos',
                   style: TextStyle(fontSize: 13, color: AppTheme.grey600)),
@@ -838,7 +862,7 @@ class _ComboDialogState extends State<_ComboDialog> {
   Widget build(BuildContext context) {
     final esNuevo = widget.combo == null;
     final productosDisponibles = widget.state.productos
-        .where((p) => !p.consumeItems && p.categoria != CategoriaProducto.cafeteria)
+        .where((p) => !p.consumeItems && p.categoriaId != 'cafeteria')
         .toList();
 
     return AlertDialog(
@@ -1185,6 +1209,271 @@ class _BackupTile extends StatelessWidget {
           color: Colors.orange.shade700,
         ),
       ],
+    );
+  }
+}
+
+// ── Gestor de categorías ──────────────────────────────────────────────────────
+
+class _CategoriasManager extends StatelessWidget {
+  final AppState state;
+  const _CategoriasManager({required this.state});
+
+  void _showDialog(BuildContext context, [CategoriaModel? existing]) {
+    final ctrl = TextEditingController(text: existing?.nombre ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing == null ? 'Nueva categoría' : 'Renombrar categoría'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(labelText: 'Nombre'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () {
+              final nombre = ctrl.text.trim();
+              if (nombre.isEmpty) return;
+              if (existing == null) {
+                state.agregarCategoria(nombre);
+              } else {
+                state.editarCategoria(existing.id, nombre);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmarEliminar(BuildContext context, CategoriaModel cat) {
+    final tieneProductos = state.productos.any((p) => p.categoriaId == cat.id);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar categoría'),
+        content: tieneProductos
+            ? Text(
+                '¿Eliminar "${cat.nombre}"? Los productos de esta categoría quedarán sin categoría asignada.')
+            : Text('¿Eliminar "${cat.nombre}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () {
+              state.eliminarCategoria(cat.id);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Eliminar', style: TextStyle(color: AppTheme.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        if (state.categorias.isNotEmpty)
+          ReorderableListView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            onReorder: state.reordenarCategorias,
+            children: state.categorias.map((cat) {
+              return Container(
+                key: ValueKey(cat.id),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.grey300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.drag_handle, size: 20, color: AppTheme.grey600),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(cat.nombre,
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
+                    ),
+                    Text(
+                      '${state.productos.where((p) => p.categoriaId == cat.id).length} prod.',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.grey600),
+                    ),
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: () => _showDialog(context, cat),
+                      child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.grey600),
+                    ),
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: () => _confirmarEliminar(context, cat),
+                      child: const Icon(Icons.delete_outline, size: 18, color: AppTheme.red),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        const SizedBox(height: 4),
+        OutlinedButton.icon(
+          onPressed: () => _showDialog(context),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Nueva categoría'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppTheme.brownMed,
+            side: const BorderSide(color: AppTheme.brownMed),
+            minimumSize: const Size.fromHeight(46),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Historial de cambios de precio ────────────────────────────────────────────
+
+class _HistorialPreciosList extends StatelessWidget {
+  final AppState state;
+  const _HistorialPreciosList({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final cambios = state.cambiosPrecio;
+    if (cambios.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: AppTheme.grey100,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.grey300),
+        ),
+        child: const Text(
+          'Sin cambios registrados aún. Editá el precio de un producto o combo para que aparezca aquí.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, color: AppTheme.grey600),
+        ),
+      );
+    }
+
+    final fmt = NumberFormat.currency(locale: 'es_AR', symbol: '\$', decimalDigits: 0);
+    final dateFmt = DateFormat('dd/MM/yyyy HH:mm');
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.grey300),
+      ),
+      child: Column(
+        children: cambios.asMap().entries.map((e) {
+          final i = e.key;
+          final c = e.value;
+          final isLast = i == cambios.length - 1;
+          final subio = c.precioNuevo >= c.precioAnterior;
+          final pct = c.porcentajeCambio;
+          final pctStr = '${subio ? '+' : ''}${pct.toStringAsFixed(1)}%';
+
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: isLast
+                  ? null
+                  : const Border(bottom: BorderSide(color: AppTheme.grey300)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              c.nombre,
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.brownDark),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: AppTheme.grey100,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: AppTheme.grey300),
+                            ),
+                            child: Text(
+                              c.tipo == TipoCambioPrecio.combo ? 'Combo' : 'Producto',
+                              style: const TextStyle(fontSize: 10, color: AppTheme.grey600),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Text(
+                            fmt.format(c.precioAnterior),
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.grey600,
+                                decoration: TextDecoration.lineThrough),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 6),
+                            child: Icon(Icons.arrow_forward, size: 12, color: AppTheme.grey600),
+                          ),
+                          Text(
+                            fmt.format(c.precioNuevo),
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: subio ? AppTheme.brownDark : AppTheme.green),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        dateFmt.format(c.timestamp),
+                        style: const TextStyle(fontSize: 11, color: AppTheme.grey600),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: subio ? AppTheme.redLight : AppTheme.greenLight,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    pctStr,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: subio ? AppTheme.red : AppTheme.green,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 }

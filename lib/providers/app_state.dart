@@ -17,6 +17,9 @@ class AppState extends ChangeNotifier {
   // ── Combos editables
   List<Combo> combos = [];
 
+  // ── Categorías dinámicas de productos
+  List<CategoriaModel> categorias = [];
+
   // ── Productos del menú
   List<Producto> productos = [];
 
@@ -43,6 +46,9 @@ class AppState extends ChangeNotifier {
 
   // ── Ajustes de stock
   List<StockAjuste> stockAjustes = [];
+
+  // ── Historial de cambios de precio
+  List<CambioPrecio> cambiosPrecio = [];
 
   // ── Firestore
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -184,6 +190,20 @@ class AppState extends ChangeNotifier {
     }
     _sortCombos();
 
+    // Categorías
+    final categoriasDoc = await _db.collection('config').doc('categorias').get();
+    if (categoriasDoc.exists) {
+      final list = categoriasDoc.data()?['items'] as List? ?? [];
+      categorias = list
+          .map((j) => CategoriaModel.fromJson(Map<String, dynamic>.from(j as Map)))
+          .toList();
+    }
+    if (categorias.isEmpty) {
+      categorias = kDefaultCategorias();
+      await _saveCategoriasToDb();
+    }
+    _sortCategorias();
+
     // Productos
     final productosDoc = await _db.collection('config').doc('productos').get();
     if (productosDoc.exists) {
@@ -234,6 +254,13 @@ class AppState extends ChangeNotifier {
         .toList();
     stockAjustes.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     _recalcularInicialDesdeAjustes();
+
+    // Cambios de precio
+    final cambiosPrecioSnap = await _db.collection('cambios_precio').get();
+    cambiosPrecio = cambiosPrecioSnap.docs
+        .map((d) => CambioPrecio.fromJson(Map<String, dynamic>.from(d.data())))
+        .toList();
+    cambiosPrecio.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
     // Ventas
     final ventasSnap = await _db.collection('ventas').get();
@@ -358,6 +385,31 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ── Historial de precios ───────────────────────────────────────────────────
+
+  List<CambioPrecio> cambiosPrecioDeProducto(String id) =>
+      cambiosPrecio.where((c) => c.referenciaId == id).toList();
+
+  void _registrarCambioPrecio({
+    required String referenciaId,
+    required String nombre,
+    required TipoCambioPrecio tipo,
+    required int precioAnterior,
+    required int precioNuevo,
+  }) {
+    final cambio = CambioPrecio(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      referenciaId: referenciaId,
+      nombre: nombre,
+      tipo: tipo,
+      precioAnterior: precioAnterior,
+      precioNuevo: precioNuevo,
+      timestamp: DateTime.now(),
+    );
+    _db.collection('cambios_precio').doc(cambio.id).set(cambio.toJson());
+    cambiosPrecio.insert(0, cambio);
+  }
+
   // ── Firestore helpers ──────────────────────────────────────────────────────
 
   Future<void> _saveCombosToDb() => _db.collection('config').doc('combos').set({
@@ -367,6 +419,11 @@ class AppState extends ChangeNotifier {
   Future<void> _saveProductosToDb() =>
       _db.collection('config').doc('productos').set({
         'items': productos.map((p) => p.toJson()).toList(),
+      });
+
+  Future<void> _saveCategoriasToDb() =>
+      _db.collection('config').doc('categorias').set({
+        'items': categorias.map((c) => c.toJson()).toList(),
       });
 
   void _recalcularInicialDesdeAjustes() {
@@ -390,9 +447,10 @@ class AppState extends ChangeNotifier {
   final Map<String, int> _ajusteTotalProductos = {};
   int ajusteTotalProducto(String id) => _ajusteTotalProductos[id] ?? 0;
 
-  void _sortInsumos()  => insumos.sort((a, b) => a.nombre.compareTo(b.nombre));
-  void _sortCombos()   => combos.sort((a, b) => a.nombre.compareTo(b.nombre));
-  void _sortProductos() => productos.sort((a, b) => a.nombre.compareTo(b.nombre));
+  void _sortInsumos()    => insumos.sort((a, b) => a.nombre.compareTo(b.nombre));
+  void _sortCombos()     => combos.sort((a, b) => a.nombre.compareTo(b.nombre));
+  void _sortProductos()  => productos.sort((a, b) => a.nombre.compareTo(b.nombre));
+  void _sortCategorias() => categorias.sort((a, b) => a.orden.compareTo(b.orden));
 
   void _ensureStockEntries() {
     for (final insumo in insumos) {
@@ -458,6 +516,15 @@ class AppState extends ChangeNotifier {
       Map<String, int>? insumos,
       Map<String, int>? productosConsumidos}) {
     final c = combos.firstWhere((c) => c.id == id);
+    if (precio != null && precio != c.precioFijo) {
+      _registrarCambioPrecio(
+        referenciaId: id,
+        nombre: nombre ?? c.nombre,
+        tipo: TipoCambioPrecio.combo,
+        precioAnterior: c.precioFijo,
+        precioNuevo: precio,
+      );
+    }
     if (nombre != null) c.nombre = nombre;
     if (precio != null) c.precioFijo = precio;
     if (insumos != null) c.insumos = insumos;
@@ -483,7 +550,7 @@ class AppState extends ChangeNotifier {
 
   // ── Productos CRUD ─────────────────────────────────────────────────────────
 
-  void agregarProducto(String nombre, int precio, CategoriaProducto categoria,
+  void agregarProducto(String nombre, int precio, String categoriaId,
       {TamanoBebida? tamanoBebida,
       Map<String, int>? insumosConsumidos,
       Map<String, int>? productosConsumidos,
@@ -492,7 +559,7 @@ class AppState extends ChangeNotifier {
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       nombre: nombre,
       precio: precio,
-      categoria: categoria,
+      categoriaId: categoriaId,
       tamanoBebida: tamanoBebida,
       insumosConsumidos: insumosConsumidos,
       productosConsumidos: productosConsumidos,
@@ -506,7 +573,7 @@ class AppState extends ChangeNotifier {
   void editarProducto(String id,
       {String? nombre,
       int? precio,
-      CategoriaProducto? categoria,
+      String? categoriaId,
       TamanoBebida? tamanoBebida,
       bool updateTamano = false,
       Map<String, int>? insumosConsumidos,
@@ -514,9 +581,18 @@ class AppState extends ChangeNotifier {
       bool updateConsumos = false,
       List<String>? opciones}) {
     final p = productos.firstWhere((p) => p.id == id);
+    if (precio != null && precio != p.precio) {
+      _registrarCambioPrecio(
+        referenciaId: id,
+        nombre: nombre ?? p.nombre,
+        tipo: TipoCambioPrecio.producto,
+        precioAnterior: p.precio,
+        precioNuevo: precio,
+      );
+    }
     if (nombre != null) p.nombre = nombre;
     if (precio != null) p.precio = precio;
-    if (categoria != null) p.categoria = categoria;
+    if (categoriaId != null) p.categoriaId = categoriaId;
     if (updateTamano) p.tamanoBebida = tamanoBebida;
     if (updateConsumos) {
       p.insumosConsumidos = insumosConsumidos ?? {};
@@ -525,6 +601,40 @@ class AppState extends ChangeNotifier {
     if (opciones != null) p.opciones = opciones;
     _sortProductos();
     _saveProductosToDb();
+    notifyListeners();
+  }
+
+  // ── Categorías CRUD ────────────────────────────────────────────────────────
+
+  void agregarCategoria(String nombre) {
+    final id = '${nombre.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}_${DateTime.now().millisecondsSinceEpoch}';
+    final orden = categorias.isEmpty ? 0 : categorias.last.orden + 1;
+    categorias.add(CategoriaModel(id: id, nombre: nombre, orden: orden));
+    _saveCategoriasToDb();
+    notifyListeners();
+  }
+
+  void editarCategoria(String id, String nuevoNombre) {
+    final cat = categorias.firstWhere((c) => c.id == id);
+    cat.nombre = nuevoNombre;
+    _saveCategoriasToDb();
+    notifyListeners();
+  }
+
+  void eliminarCategoria(String id) {
+    categorias.removeWhere((c) => c.id == id);
+    _saveCategoriasToDb();
+    notifyListeners();
+  }
+
+  void reordenarCategorias(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex--;
+    final item = categorias.removeAt(oldIndex);
+    categorias.insert(newIndex, item);
+    for (var i = 0; i < categorias.length; i++) {
+      categorias[i].orden = i;
+    }
+    _saveCategoriasToDb();
     notifyListeners();
   }
 
@@ -1075,7 +1185,7 @@ class AppState extends ChangeNotifier {
       final pIdx = productos.indexWhere((p) => p.id == item.comboId);
       if (pIdx != -1) {
         final p = productos[pIdx];
-        if (p.categoria == CategoriaProducto.cafeteria && p.tamanoBebida != null) {
+        if (p.categoriaId == 'cafeteria' && p.tamanoBebida != null) {
           stock[p.tamanoBebida!.vasoInsumoId]?.vendidos += item.cantidad;
           stock[p.tamanoBebida!.tapaInsumoId]?.vendidos += item.cantidad;
         }
@@ -1108,7 +1218,7 @@ class AppState extends ChangeNotifier {
       final pIdx = productos.indexWhere((p) => p.id == item.comboId);
       if (pIdx != -1) {
         final p = productos[pIdx];
-        if (p.categoria == CategoriaProducto.cafeteria && p.tamanoBebida != null) {
+        if (p.categoriaId == 'cafeteria' && p.tamanoBebida != null) {
           final ev = stock[p.tamanoBebida!.vasoInsumoId];
           final et = stock[p.tamanoBebida!.tapaInsumoId];
           if (ev != null) ev.vendidos -= item.cantidad;

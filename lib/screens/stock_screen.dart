@@ -41,11 +41,11 @@ class StockScreen extends StatelessWidget {
           }),
 
           // ── Productos ──────────────────────────────────────────────────────
-          if (state.productos.any((p) => p.categoria != CategoriaProducto.cafeteria && !p.consumeItems)) ...[
+          if (state.productos.any((p) => p.categoriaId != 'cafeteria' && !p.consumeItems)) ...[
             const SizedBox(height: 16),
             const SectionHeader('Productos'),
             const SizedBox(height: 8),
-            ...state.productos.where((p) => p.categoria != CategoriaProducto.cafeteria && !p.consumeItems).map((p) {
+            ...state.productos.where((p) => p.categoriaId != 'cafeteria' && !p.consumeItems).map((p) {
               final inicial = state.stockInicialProductos[p.id] ?? 0;
               final vendidos = state.stockVendidosProducto(p.id);
               return Padding(

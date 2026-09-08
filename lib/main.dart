@@ -132,7 +132,7 @@ class _ShellState extends State<_Shell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _idx,
         onDestinationSelected: (i) => setState(() => _idx = i),
-        destinations: List.generate(6, (i) {
+        destinations: List.generate(7, (i) {
           // Badge de alerta en Stock (índice 1) cuando hay stock bajo mínimo
           final needsBadge = i == 2 && state.hayStockBajoMinimo;
           return NavigationDestination(

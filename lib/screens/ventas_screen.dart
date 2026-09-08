@@ -186,13 +186,8 @@ class _SelectorPanelState extends State<SelectorPanel> {
   // id (combo o producto) → cantidad seleccionada
   final Map<String, int> _cantidades = {};
 
-  // secciones expandidas
-  final Map<String, bool> _expandido = {
-    'Combos': false,
-    'Cafetería': false,
-    'Delicias Dulces': false,
-    'Salados': false,
-  };
+  // secciones expandidas: key = id de categoría o 'combos'
+  final Map<String, bool> _expandido = {};
 
   int get _total {
     int t = 0;
@@ -423,9 +418,9 @@ class _SelectorPanelState extends State<SelectorPanel> {
     return Column(children: rows);
   }
 
-  Widget _seccion(String label, List<Widget> rows, bool isLandscape) {
+  Widget _seccion(String id, String label, List<Widget> rows, bool isLandscape) {
     if (rows.isEmpty) return const SizedBox.shrink();
-    final expandido = _expandido[label] ?? true;
+    final expandido = _expandido[id] ?? true;
     final hPad = isLandscape ? 20.0 : 0.0;
 
     return Padding(
@@ -435,7 +430,7 @@ class _SelectorPanelState extends State<SelectorPanel> {
         children: [
           // Header tappable
           GestureDetector(
-            onTap: () => setState(() => _expandido[label] = !expandido),
+            onTap: () => setState(() => _expandido[id] = !expandido),
             child: Container(
               margin: EdgeInsets.symmetric(horizontal: hPad),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -509,26 +504,16 @@ class _SelectorPanelState extends State<SelectorPanel> {
         .map((c) => _buildRow(c.id, c.nombre, c.precioFijo))
         .toList();
 
-    final cafeteriaRows = state.productos
-        .where((p) => p.activo && p.categoria == CategoriaProducto.cafeteria)
-        .map((p) => p.opciones.isNotEmpty
-            ? _buildProductoConOpcionesRow(p)
-            : _buildRow(p.id, p.displayNombre, p.precio))
-        .toList();
-
-    final dulcesRows = state.productos
-        .where((p) => p.activo && p.categoria == CategoriaProducto.deliciasDulces)
-        .map((p) => p.opciones.isNotEmpty
-            ? _buildProductoConOpcionesRow(p)
-            : _buildRow(p.id, p.nombre, p.precio))
-        .toList();
-
-    final saladosRows = state.productos
-        .where((p) => p.activo && p.categoria == CategoriaProducto.salados)
-        .map((p) => p.opciones.isNotEmpty
-            ? _buildProductoConOpcionesRow(p)
-            : _buildRow(p.id, p.nombre, p.precio))
-        .toList();
+    // Secciones dinámicas por categoría
+    final secciones = state.categorias.map((cat) {
+      final rows = state.productos
+          .where((p) => p.activo && p.categoriaId == cat.id)
+          .map((p) => p.opciones.isNotEmpty
+              ? _buildProductoConOpcionesRow(p)
+              : _buildRow(p.id, p.displayNombre, p.precio))
+          .toList();
+      return (id: cat.id, label: cat.nombre, rows: rows);
+    }).toList();
 
     Widget content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -544,11 +529,11 @@ class _SelectorPanelState extends State<SelectorPanel> {
         else
           const SectionHeader('Agregar al pedido'),
 
-        // ── Categorías ────────────────────────────────────────────────────
-        _seccion('Combos', combosRows, isLandscape),
-        _seccion('Cafetería', cafeteriaRows, isLandscape),
-        _seccion('Delicias Dulces', dulcesRows, isLandscape),
-        _seccion('Salados', saladosRows, isLandscape),
+        // ── Combos (siempre primero) ───────────────────────────────────────
+        _seccion('__combos__', 'Combos', combosRows, isLandscape),
+
+        // ── Categorías dinámicas ──────────────────────────────────────────
+        ...secciones.map((s) => _seccion(s.id, s.label, s.rows, isLandscape)),
 
         const SizedBox(height: 20),
 
