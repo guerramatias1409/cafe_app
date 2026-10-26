@@ -49,17 +49,8 @@ class _HistorialScreenState extends State<HistorialScreen> {
               _TabChip(label: 'Exportar CSV', selected: _tab == 2,
                   onTap: () => setState(() => _tab = 2)),
               const Spacer(),
-              if (_tab == 0 && ventas.isNotEmpty) ...[
-                const Text('Total ',
-                    style: TextStyle(fontSize: 14, color: AppTheme.grey600)),
-                Text(
-                  _moneda.format(state.totalRecaudado),
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.brownDark),
-                ),
-              ],
+              if (_tab == 0 && ventas.isNotEmpty)
+                _ResumenSemana(ventas: state.ventas),
             ],
           ),
         ),
@@ -701,6 +692,126 @@ class _VentaCardState extends State<_VentaCard> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Resumen semanal / mensual ──────────────────────────────────────────────────
+
+class _ResumenSemana extends StatefulWidget {
+  final List<Venta> ventas;
+  const _ResumenSemana({required this.ventas});
+
+  @override
+  State<_ResumenSemana> createState() => _ResumenSemanaState();
+}
+
+class _ResumenSemanaState extends State<_ResumenSemana> {
+  bool _mensual = false;
+
+  DateTime _martesDeSemana(DateTime ref) {
+    final diasDesdeMartes = (ref.weekday - DateTime.tuesday) % 7;
+    final martes = ref.subtract(Duration(days: diasDesdeMartes));
+    return DateTime(martes.year, martes.month, martes.day);
+  }
+
+  int _sumaVentas(DateTime desde, DateTime hasta) => widget.ventas
+      .where((v) => !v.timestamp.isBefore(desde) && v.timestamp.isBefore(hasta))
+      .fold(0, (s, v) => s + v.precioTotal + v.propina);
+
+  @override
+  Widget build(BuildContext context) {
+    final ahora = DateTime.now();
+
+    final int totalActual;
+    final int totalAnterior;
+    final String tramoLabel;
+    final String tramoAnteriorLabel;
+
+    if (_mensual) {
+      final inicioMesActual = DateTime(ahora.year, ahora.month, 1);
+      totalActual = _sumaVentas(inicioMesActual, ahora);
+      final inicioMesAnterior = DateTime(ahora.year, ahora.month - 1, 1);
+      final hastaAnterior = DateTime(ahora.year, ahora.month - 1, ahora.day,
+          ahora.hour, ahora.minute, ahora.second);
+      totalAnterior = _sumaVentas(inicioMesAnterior, hastaAnterior);
+      final mesFmt = DateFormat('MMM', 'es');
+      tramoLabel = '1–${ahora.day} ${mesFmt.format(ahora)}';
+      tramoAnteriorLabel = '1–${ahora.day} ${mesFmt.format(inicioMesAnterior)}';
+    } else {
+      final inicioSemanaActual = _martesDeSemana(ahora);
+      totalActual = _sumaVentas(inicioSemanaActual, ahora);
+      final inicioSemanaAnterior = inicioSemanaActual.subtract(const Duration(days: 7));
+      final hastaAnterior = ahora.subtract(const Duration(days: 7));
+      totalAnterior = _sumaVentas(inicioSemanaAnterior, hastaAnterior);
+      final diaFmt = DateFormat('EEE d', 'es');
+      tramoLabel = '${diaFmt.format(inicioSemanaActual)} – ${diaFmt.format(ahora)}';
+      tramoAnteriorLabel = '${diaFmt.format(inicioSemanaAnterior)} – ${diaFmt.format(hastaAnterior)}';
+    }
+
+    double? pct;
+    if (totalAnterior > 0) {
+      pct = (totalActual - totalAnterior) / totalAnterior * 100;
+    }
+    final sube = (pct ?? 0) >= 0;
+    final pctStr = pct == null
+        ? null
+        : '${sube ? '+' : ''}${pct.toStringAsFixed(0)}%';
+
+    return GestureDetector(
+      onTap: () => setState(() => _mensual = !_mensual),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                '${_mensual ? 'Mes' : 'Sem'} $tramoLabel  ',
+                style: const TextStyle(fontSize: 11, color: AppTheme.grey600),
+              ),
+              Text(
+                _moneda.format(totalActual),
+                style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.brownDark),
+              ),
+              if (pctStr != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: sube ? AppTheme.greenLight : AppTheme.redLight,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    pctStr,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: sube ? AppTheme.green : AppTheme.red,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (totalAnterior > 0)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'vs $tramoAnteriorLabel – ${_moneda.format(totalAnterior)}',
+                  style: const TextStyle(fontSize: 10, color: AppTheme.grey600),
+                ),
+              ],
+            ),
         ],
       ),
     );
