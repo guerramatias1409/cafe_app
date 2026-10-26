@@ -15,7 +15,8 @@ final _moneda = NumberFormat.currency(locale: 'es_AR', symbol: '\$', decimalDigi
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class VentasScreen extends StatefulWidget {
-  const VentasScreen({super.key});
+  final bool isActive;
+  const VentasScreen({super.key, this.isActive = true});
 
   @override
   State<VentasScreen> createState() => _VentasScreenState();
@@ -70,7 +71,7 @@ class _VentasScreenState extends State<VentasScreen> {
         children: [
           Expanded(
             flex: 3,
-            child: SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
+            child: SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito, isActive: widget.isActive),
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -99,7 +100,7 @@ class _VentasScreenState extends State<VentasScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito),
+          SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito, isActive: widget.isActive),
           if (_carrito.isNotEmpty) ...[
             const SizedBox(height: 24),
             _CarritoPanel(
@@ -175,8 +176,9 @@ class SelectorPanel extends StatefulWidget {
   final ValueChanged<ItemCarrito> onAgregar;
   final AppState state;
   final List<ItemCarrito> enCarrito;
+  final bool isActive;
 
-  const SelectorPanel({super.key, required this.onAgregar, required this.state, required this.enCarrito});
+  const SelectorPanel({super.key, required this.onAgregar, required this.state, required this.enCarrito, this.isActive = true});
 
   @override
   State<SelectorPanel> createState() => _SelectorPanelState();
@@ -186,8 +188,19 @@ class _SelectorPanelState extends State<SelectorPanel> {
   // id (combo o producto) → cantidad seleccionada
   final Map<String, int> _cantidades = {};
 
-  // secciones expandidas: key = id de categoría o 'combos'
-  final Map<String, bool> _expandido = {};
+  // secciones expandidas: key = id de categoría o '__combos__'
+  final Map<String, bool> _expandido = {'__combos__': true};
+
+  @override
+  void didUpdateWidget(SelectorPanel old) {
+    super.didUpdateWidget(old);
+    if (widget.isActive && !old.isActive) {
+      setState(() {
+        _expandido.clear();
+        _expandido['__combos__'] = true;
+      });
+    }
+  }
 
   int get _total {
     int t = 0;
@@ -420,7 +433,7 @@ class _SelectorPanelState extends State<SelectorPanel> {
 
   Widget _seccion(String id, String label, List<Widget> rows, bool isLandscape) {
     if (rows.isEmpty) return const SizedBox.shrink();
-    final expandido = _expandido[id] ?? true;
+    final expandido = _expandido[id] ?? false;
     final hPad = isLandscape ? 20.0 : 0.0;
 
     return Padding(
@@ -430,7 +443,14 @@ class _SelectorPanelState extends State<SelectorPanel> {
         children: [
           // Header tappable
           GestureDetector(
-            onTap: () => setState(() => _expandido[id] = !expandido),
+            onTap: () => setState(() {
+              if (expandido) {
+                _expandido[id] = false;
+              } else {
+                _expandido.updateAll((k, _) => false);
+                _expandido[id] = true;
+              }
+            }),
             child: Container(
               margin: EdgeInsets.symmetric(horizontal: hPad),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -520,7 +540,6 @@ class _SelectorPanelState extends State<SelectorPanel> {
       children: [
         if (isLandscape) const SizedBox(height: 20),
 
-        // Título del panel
         if (isLandscape)
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
@@ -529,15 +548,11 @@ class _SelectorPanelState extends State<SelectorPanel> {
         else
           const SectionHeader('Agregar al pedido'),
 
-        // ── Combos (siempre primero) ───────────────────────────────────────
         _seccion('__combos__', 'Combos', combosRows, isLandscape),
-
-        // ── Categorías dinámicas ──────────────────────────────────────────
         ...secciones.map((s) => _seccion(s.id, s.label, s.rows, isLandscape)),
 
         const SizedBox(height: 20),
 
-        // ── Botón agregar ─────────────────────────────────────────────────
         Padding(
           padding: isLandscape
               ? const EdgeInsets.symmetric(horizontal: 20)

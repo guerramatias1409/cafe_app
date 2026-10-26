@@ -63,15 +63,6 @@ class _Shell extends StatefulWidget {
 class _ShellState extends State<_Shell> {
   int _idx = 0;
 
-  static const _screens = [
-    MesasScreen(),
-    VentasScreen(),
-    StockScreen(),
-    ComprasScreen(),
-    ResumenScreen(),
-    HistorialScreen(),
-    ConfigScreen(),
-  ];
 
   static const _labels = ['Mesas', 'Ventas', 'Stock', 'Compras', 'Resumen', 'Historial', 'Config'];
   static const _icons = [
@@ -127,7 +118,15 @@ class _ShellState extends State<_Shell> {
       ),
       body: IndexedStack(
         index: _idx,
-        children: _screens,
+        children: [
+          const MesasScreen(),
+          VentasScreen(isActive: _idx == 1),
+          const StockScreen(),
+          const ComprasScreen(),
+          const ResumenScreen(),
+          const HistorialScreen(),
+          const ConfigScreen(),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _idx,
