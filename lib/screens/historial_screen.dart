@@ -731,15 +731,19 @@ class _ResumenSemanaState extends State<_ResumenSemana> {
     final String tramoAnteriorLabel;
 
     if (_mensual) {
-      final inicioMesActual = DateTime(ahora.year, ahora.month, 1);
-      totalActual = _sumaVentas(inicioMesActual, ahora);
-      final inicioMesAnterior = DateTime(ahora.year, ahora.month - 1, 1);
+      // Ciclo: del 10 de un mes al 9 del siguiente
+      final inicioCicloActual = ahora.day >= 10
+          ? DateTime(ahora.year, ahora.month, 10)
+          : DateTime(ahora.year, ahora.month - 1, 10);
+      totalActual = _sumaVentas(inicioCicloActual, ahora);
+      final inicioCicloAnterior = DateTime(
+          inicioCicloActual.year, inicioCicloActual.month - 1, 10);
       final hastaAnterior = DateTime(ahora.year, ahora.month - 1, ahora.day,
           ahora.hour, ahora.minute, ahora.second);
-      totalAnterior = _sumaVentas(inicioMesAnterior, hastaAnterior);
-      final mesFmt = DateFormat('MMM', 'es');
-      tramoLabel = '1–${ahora.day} ${mesFmt.format(ahora)}';
-      tramoAnteriorLabel = '1–${ahora.day} ${mesFmt.format(inicioMesAnterior)}';
+      totalAnterior = _sumaVentas(inicioCicloAnterior, hastaAnterior);
+      final dFmt = DateFormat('d MMM', 'es');
+      tramoLabel = '${dFmt.format(inicioCicloActual)} – ${dFmt.format(ahora)}';
+      tramoAnteriorLabel = '${dFmt.format(inicioCicloAnterior)} – ${dFmt.format(hastaAnterior)}';
     } else {
       final inicioSemanaActual = _martesDeSemana(ahora);
       totalActual = _sumaVentas(inicioSemanaActual, ahora);
