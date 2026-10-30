@@ -813,6 +813,7 @@ class _CuentaMesaScreenState extends State<CuentaMesaScreen> {
         ],
       ),
       body: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           // ── Estado de la cuenta ──────────────────────────────────────────
           if (cuenta.estado == EstadoCuenta.esperandoCuenta)
@@ -901,7 +902,7 @@ class _CuentaMesaScreenState extends State<CuentaMesaScreen> {
           // ── Selector de productos (expandible) ────────────────────────────
           if (_mostrandoSelector)
             Container(
-              height: 380,
+              height: MediaQuery.of(context).size.height * 3 / 5,
               decoration: const BoxDecoration(
                 border: Border(top: BorderSide(color: AppTheme.grey300)),
               ),
@@ -924,11 +925,12 @@ class _CuentaMesaScreenState extends State<CuentaMesaScreen> {
                     ),
                   ),
                   Expanded(
-                    child: SingleChildScrollView(
+                    child: Padding(
                       padding: const EdgeInsets.all(12),
                       child: SelectorPanel(
                         state: state,
                         enCarrito: cuenta.items,
+                        mostrarBoton: false,
                         onAgregar: (item) async {
                           await state.agregarItemACuenta(widget.mesa.id, item);
                         },

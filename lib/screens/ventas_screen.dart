@@ -118,57 +118,72 @@ class _VentasScreenState extends State<VentasScreen> {
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SelectorPanel(onAgregar: _agregarItem, state: state, enCarrito: _carrito, isActive: widget.isActive),
-          if (_carrito.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            _CarritoPanel(
-              carrito: _carrito,
-              medioPago: _medioPago,
-              total: _totalCarrito,
-              propina: _propina,
-              propinaMedioPago: _propinaMedioPago,
-              pagoDividido: _pagoDividido,
-              medioPago2: _medioPago2,
-              montoPago2: _montoPago2,
-              onQuitarItem: _quitarItem,
-              onMedioPago: (m) => setState(() => _medioPago = m),
-              onPropina: (v) => setState(() => _propina = v),
-              onPropinaMedioPago: (m) => setState(() => _propinaMedioPago = m),
-              onPagoDividido: (v) => setState(() => _pagoDividido = v),
-              onMedioPago2: (m) => setState(() => _medioPago2 = m),
-              onMontoPago2: (v) => setState(() => _montoPago2 = v),
-              onConfirmar: (extras) => _confirmarVenta(state, extras),
-              onCancelar: _limpiarCarrito,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            child: SelectorPanel(
+              onAgregar: _agregarItem,
               state: state,
+              enCarrito: _carrito,
+              isActive: widget.isActive,
             ),
-          ],
-          const SizedBox(height: 32),
-          if (state.ventas.isNotEmpty) ...[
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          ),
+        ),
+        if (_carrito.isNotEmpty || state.ventas.isNotEmpty)
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SectionHeader('Últimas ventas'),
-                GestureDetector(
-                  onTap: () => _showUndoDialog(context, state),
-                  child: const Text('Deshacer última',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.caramel,
-                        decoration: TextDecoration.underline,
-                      )),
-                ),
+                if (_carrito.isNotEmpty) ...[
+                  _CarritoPanel(
+                    carrito: _carrito,
+                    medioPago: _medioPago,
+                    total: _totalCarrito,
+                    propina: _propina,
+                    propinaMedioPago: _propinaMedioPago,
+                    pagoDividido: _pagoDividido,
+                    medioPago2: _medioPago2,
+                    montoPago2: _montoPago2,
+                    onQuitarItem: _quitarItem,
+                    onMedioPago: (m) => setState(() => _medioPago = m),
+                    onPropina: (v) => setState(() => _propina = v),
+                    onPropinaMedioPago: (m) => setState(() => _propinaMedioPago = m),
+                    onPagoDividido: (v) => setState(() => _pagoDividido = v),
+                    onMedioPago2: (m) => setState(() => _medioPago2 = m),
+                    onMontoPago2: (v) => setState(() => _montoPago2 = v),
+                    onConfirmar: (extras) => _confirmarVenta(state, extras),
+                    onCancelar: _limpiarCarrito,
+                    state: state,
+                  ),
+                ],
+                if (state.ventas.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const SectionHeader('Últimas ventas'),
+                      GestureDetector(
+                        onTap: () => _showUndoDialog(context, state),
+                        child: const Text('Deshacer última',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.caramel,
+                              decoration: TextDecoration.underline,
+                            )),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  ...state.ventas.reversed.take(5).map((v) => _VentaRow(v: v)),
+                ],
               ],
             ),
-            const SizedBox(height: 4),
-            ...state.ventas.reversed.take(5).map((v) => _VentaRow(v: v)),
-          ],
-        ],
-      ),
+          ),
+      ],
     );
   }
 
@@ -206,8 +221,9 @@ class SelectorPanel extends StatefulWidget {
   final AppState state;
   final List<ItemCarrito> enCarrito;
   final bool isActive;
+  final bool mostrarBoton;
 
-  const SelectorPanel({super.key, required this.onAgregar, required this.state, required this.enCarrito, this.isActive = true});
+  const SelectorPanel({super.key, required this.onAgregar, required this.state, required this.enCarrito, this.isActive = true, this.mostrarBoton = true});
 
   @override
   State<SelectorPanel> createState() => _SelectorPanelState();
@@ -632,27 +648,24 @@ class _SelectorPanelState extends State<SelectorPanel> {
       );
     }
 
-    // Portrait: secciones scrollables, botón fijo al fondo
-    return Stack(
+    // Portrait sin botón (ej: mesas_screen): scroll simple
+    if (!widget.mostrarBoton) {
+      return SingleChildScrollView(child: seccionesCol);
+    }
+
+    // Portrait con botón fijo al fondo
+    return Column(
       children: [
-        Positioned.fill(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.only(bottom: 72),
-            child: seccionesCol,
-          ),
+        Expanded(
+          child: SingleChildScrollView(child: seccionesCol),
         ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Container(
-            decoration: const BoxDecoration(
-              color: AppTheme.white,
-              border: Border(top: BorderSide(color: AppTheme.grey300)),
-            ),
-            padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
-            child: boton,
+        Container(
+          decoration: const BoxDecoration(
+            color: AppTheme.white,
+            border: Border(top: BorderSide(color: AppTheme.grey300)),
           ),
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+          child: boton,
         ),
       ],
     );
