@@ -25,6 +25,10 @@ class VentasScreen extends StatefulWidget {
 class _VentasScreenState extends State<VentasScreen> {
   final List<ItemCarrito> _carrito = [];
   MedioPago _medioPago = MedioPago.efectivo;
+  // Pago dividido
+  bool _pagoDividido = false;
+  MedioPago _medioPago2 = MedioPago.transferencia;
+  int _montoPago2 = 0; // monto del segundo pago
   int _propina = 0;
   MedioPago _propinaMedioPago = MedioPago.efectivo;
 
@@ -37,15 +41,28 @@ class _VentasScreenState extends State<VentasScreen> {
   void _limpiarCarrito() => setState(() {
         _carrito.clear();
         _medioPago = MedioPago.efectivo;
+        _pagoDividido = false;
+        _medioPago2 = MedioPago.transferencia;
+        _montoPago2 = 0;
         _propina = 0;
         _propinaMedioPago = MedioPago.efectivo;
       });
 
   void _confirmarVenta(AppState state, Map<String, int> extras) {
     if (_carrito.isEmpty) return;
+    final total = _carrito.fold(0, (s, it) => s + it.precioTotal);
+    final List<Pago> pagos;
+    if (_pagoDividido && _montoPago2 > 0 && _montoPago2 < total) {
+      pagos = [
+        Pago(medioPago: _medioPago, monto: total - _montoPago2),
+        Pago(medioPago: _medioPago2, monto: _montoPago2),
+      ];
+    } else {
+      pagos = [Pago(medioPago: _medioPago, monto: total)];
+    }
     state.registrarVenta(
       items: List.from(_carrito),
-      medioPago: _medioPago,
+      pagos: pagos,
       propina: _propina,
       propinaMedioPago: _propinaMedioPago,
     );
@@ -82,10 +99,16 @@ class _VentasScreenState extends State<VentasScreen> {
               total: _totalCarrito,
               propina: _propina,
               propinaMedioPago: _propinaMedioPago,
+              pagoDividido: _pagoDividido,
+              medioPago2: _medioPago2,
+              montoPago2: _montoPago2,
               onQuitarItem: _quitarItem,
               onMedioPago: (m) => setState(() => _medioPago = m),
               onPropina: (v) => setState(() => _propina = v),
               onPropinaMedioPago: (m) => setState(() => _propinaMedioPago = m),
+              onPagoDividido: (v) => setState(() => _pagoDividido = v),
+              onMedioPago2: (m) => setState(() => _medioPago2 = m),
+              onMontoPago2: (v) => setState(() => _montoPago2 = v),
               onConfirmar: (extras) => _confirmarVenta(state, extras),
               onCancelar: _limpiarCarrito,
               state: state,
@@ -109,10 +132,16 @@ class _VentasScreenState extends State<VentasScreen> {
               total: _totalCarrito,
               propina: _propina,
               propinaMedioPago: _propinaMedioPago,
+              pagoDividido: _pagoDividido,
+              medioPago2: _medioPago2,
+              montoPago2: _montoPago2,
               onQuitarItem: _quitarItem,
               onMedioPago: (m) => setState(() => _medioPago = m),
               onPropina: (v) => setState(() => _propina = v),
               onPropinaMedioPago: (m) => setState(() => _propinaMedioPago = m),
+              onPagoDividido: (v) => setState(() => _pagoDividido = v),
+              onMedioPago2: (m) => setState(() => _medioPago2 = m),
+              onMontoPago2: (v) => setState(() => _montoPago2 = v),
               onConfirmar: (extras) => _confirmarVenta(state, extras),
               onCancelar: _limpiarCarrito,
               state: state,
@@ -535,11 +564,31 @@ class _SelectorPanelState extends State<SelectorPanel> {
       return (id: cat.id, label: cat.nombre, rows: rows);
     }).toList();
 
-    Widget content = Column(
+    final boton = AnimatedOpacity(
+      opacity: _hayItems ? 1.0 : 0.4,
+      duration: const Duration(milliseconds: 150),
+      child: ElevatedButton.icon(
+        onPressed: _hayItems ? _agregar : null,
+        icon: const Icon(Icons.add, size: 18),
+        label: Text(_hayItems
+            ? 'Agregar al pedido  –  ${_moneda.format(_total)}'
+            : 'Seleccioná un ítem'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTheme.caramel,
+          disabledBackgroundColor: AppTheme.grey300,
+          minimumSize: const Size.fromHeight(50),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
+          textStyle:
+              const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+
+    final seccionesCol = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (isLandscape) const SizedBox(height: 20),
-
         if (isLandscape)
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
@@ -547,46 +596,66 @@ class _SelectorPanelState extends State<SelectorPanel> {
           )
         else
           const SectionHeader('Agregar al pedido'),
-
         _seccion('__combos__', 'Combos', combosRows, isLandscape),
         ...secciones.map((s) => _seccion(s.id, s.label, s.rows, isLandscape)),
-
-        const SizedBox(height: 20),
-
-        Padding(
-          padding: isLandscape
-              ? const EdgeInsets.symmetric(horizontal: 20)
-              : EdgeInsets.zero,
-          child: AnimatedOpacity(
-            opacity: _hayItems ? 1.0 : 0.4,
-            duration: const Duration(milliseconds: 150),
-            child: ElevatedButton.icon(
-              onPressed: _hayItems ? _agregar : null,
-              icon: const Icon(Icons.add, size: 18),
-              label: Text(_hayItems
-                  ? 'Agregar al pedido  –  ${_moneda.format(_total)}'
-                  : 'Seleccioná un ítem'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.caramel,
-                disabledBackgroundColor: AppTheme.grey300,
-                minimumSize: const Size.fromHeight(50),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                textStyle: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
-        ),
-
-        if (!isLandscape) const SizedBox(height: 4),
       ],
     );
 
     if (isLandscape) {
-      return SingleChildScrollView(child: content);
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  seccionesCol,
+                  const SizedBox(height: 86),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppTheme.white,
+              border: Border(top: BorderSide(color: AppTheme.grey300)),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: boton,
+          ),
+        ),
+        ],
+      );
     }
-    return content;
+
+    // Portrait: secciones scrollables, botón fijo al fondo
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 72),
+            child: seccionesCol,
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppTheme.white,
+              border: Border(top: BorderSide(color: AppTheme.grey300)),
+            ),
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+            child: boton,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -600,10 +669,16 @@ class _CarritoPanel extends StatefulWidget {
   final int total;
   final int propina;
   final MedioPago propinaMedioPago;
+  final bool pagoDividido;
+  final MedioPago medioPago2;
+  final int montoPago2;
   final ValueChanged<int> onQuitarItem;
   final ValueChanged<MedioPago> onMedioPago;
   final ValueChanged<int> onPropina;
   final ValueChanged<MedioPago> onPropinaMedioPago;
+  final ValueChanged<bool> onPagoDividido;
+  final ValueChanged<MedioPago> onMedioPago2;
+  final ValueChanged<int> onMontoPago2;
   final ValueChanged<Map<String, int>> onConfirmar;
   final VoidCallback onCancelar;
   final AppState state;
@@ -614,10 +689,16 @@ class _CarritoPanel extends StatefulWidget {
     required this.total,
     required this.propina,
     required this.propinaMedioPago,
+    required this.pagoDividido,
+    required this.medioPago2,
+    required this.montoPago2,
     required this.onQuitarItem,
     required this.onMedioPago,
     required this.onPropina,
     required this.onPropinaMedioPago,
+    required this.onPagoDividido,
+    required this.onMedioPago2,
+    required this.onMontoPago2,
     required this.onConfirmar,
     required this.onCancelar,
     required this.state,
@@ -776,13 +857,16 @@ class _CarritoPanelState extends State<_CarritoPanel> {
             padding: isLandscape
                 ? const EdgeInsets.symmetric(horizontal: 20)
                 : EdgeInsets.zero,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SectionHeader('Medio de pago'),
-                _MedioPagoSelector(
-                    selected: widget.medioPago, onSelected: widget.onMedioPago),
-              ],
+            child: _PagoSection(
+              total: widget.total,
+              medioPago: widget.medioPago,
+              pagoDividido: widget.pagoDividido,
+              medioPago2: widget.medioPago2,
+              montoPago2: widget.montoPago2,
+              onMedioPago: widget.onMedioPago,
+              onPagoDividido: widget.onPagoDividido,
+              onMedioPago2: widget.onMedioPago2,
+              onMontoPago2: widget.onMontoPago2,
             ),
           ),
 
@@ -855,6 +939,28 @@ class _CarritoPanelState extends State<_CarritoPanel> {
                       ),
                     ],
                   ),
+                  if (widget.pagoDividido && widget.montoPago2 > 0 && widget.montoPago2 < widget.total) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${widget.medioPago.emoji} ${widget.medioPago.label}',
+                            style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
+                        Text(_moneda.format(widget.total - widget.montoPago2),
+                            style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${widget.medioPago2.emoji} ${widget.medioPago2.label}',
+                            style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
+                        Text(_moneda.format(widget.montoPago2),
+                            style: const TextStyle(fontSize: 13, color: AppTheme.grey600)),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -905,6 +1011,146 @@ class _CarritoPanelState extends State<_CarritoPanel> {
       return SingleChildScrollView(child: content);
     }
     return content;
+  }
+}
+
+// ── Sección pago (medio + pago dividido) ─────────────────────────────────────
+
+class _PagoSection extends StatefulWidget {
+  final int total;
+  final MedioPago medioPago;
+  final bool pagoDividido;
+  final MedioPago medioPago2;
+  final int montoPago2;
+  final ValueChanged<MedioPago> onMedioPago;
+  final ValueChanged<bool> onPagoDividido;
+  final ValueChanged<MedioPago> onMedioPago2;
+  final ValueChanged<int> onMontoPago2;
+
+  const _PagoSection({
+    required this.total,
+    required this.medioPago,
+    required this.pagoDividido,
+    required this.medioPago2,
+    required this.montoPago2,
+    required this.onMedioPago,
+    required this.onPagoDividido,
+    required this.onMedioPago2,
+    required this.onMontoPago2,
+  });
+
+  @override
+  State<_PagoSection> createState() => _PagoSectionState();
+}
+
+class _PagoSectionState extends State<_PagoSection> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(
+        text: widget.montoPago2 > 0 ? widget.montoPago2.toString() : '');
+  }
+
+  @override
+  void didUpdateWidget(_PagoSection old) {
+    super.didUpdateWidget(old);
+    if (widget.montoPago2 == 0 && old.montoPago2 != 0) _ctrl.clear();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final monto1 = widget.pagoDividido && widget.montoPago2 > 0
+        ? widget.total - widget.montoPago2
+        : widget.total;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader('Medio de pago'),
+        const SizedBox(height: 8),
+        // Primer medio de pago
+        Row(
+          children: [
+            Expanded(
+              child: _MedioPagoSelector(
+                  selected: widget.medioPago, onSelected: widget.onMedioPago),
+            ),
+            if (widget.pagoDividido) ...[
+              const SizedBox(width: 8),
+              Text(_moneda.format(monto1),
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.brownMed)),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Toggle pago dividido
+        GestureDetector(
+          onTap: () {
+            widget.onPagoDividido(!widget.pagoDividido);
+            if (!widget.pagoDividido) {
+              _ctrl.clear();
+              widget.onMontoPago2(0);
+            }
+          },
+          child: Row(
+            children: [
+              Icon(
+                widget.pagoDividido
+                    ? Icons.check_box
+                    : Icons.check_box_outline_blank,
+                size: 18,
+                color: AppTheme.caramel,
+              ),
+              const SizedBox(width: 6),
+              const Text('Pago dividido',
+                  style: TextStyle(fontSize: 13, color: AppTheme.brownMed)),
+            ],
+          ),
+        ),
+        if (widget.pagoDividido) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _MedioPagoSelector(
+                    selected: widget.medioPago2,
+                    onSelected: widget.onMedioPago2),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 110,
+                child: TextField(
+                  controller: _ctrl,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    hintText: 'Monto',
+                    prefixText: '\$ ',
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 10),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onChanged: (v) =>
+                      widget.onMontoPago2(int.tryParse(v) ?? 0),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
   }
 }
 

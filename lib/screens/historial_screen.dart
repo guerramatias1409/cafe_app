@@ -587,20 +587,38 @@ class _VentaCardState extends State<_VentaCard> {
                       ],
                     ),
                     ),
-                    // Medio de pago (tappable para editar)
-                    GestureDetector(
-                      onTap: () => _editarMedioPago(context, widget.state, v),
-                      child: Container(
+                    // Medio(s) de pago
+                    if (v.pagos.length > 1)
+                      Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                         decoration: BoxDecoration(
                           color: AppTheme.cream,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: AppTheme.caramel.withOpacity(0.4)),
                         ),
-                        child: Text(v.medioPago.emoji,
-                            style: const TextStyle(fontSize: 14)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          mainAxisSize: MainAxisSize.min,
+                          children: v.pagos.map((p) => Text(
+                            '${p.medioPago.emoji} ${_moneda.format(p.monto)}',
+                            style: const TextStyle(fontSize: 11, color: AppTheme.brownMed),
+                          )).toList(),
+                        ),
+                      )
+                    else
+                      GestureDetector(
+                        onTap: () => _editarMedioPago(context, widget.state, v),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.cream,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: AppTheme.caramel.withOpacity(0.4)),
+                          ),
+                          child: Text(v.medioPago.emoji,
+                              style: const TextStyle(fontSize: 14)),
+                        ),
                       ),
-                    ),
                     const SizedBox(width: 6),
                     // Propina (tappable para editar)
                     GestureDetector(

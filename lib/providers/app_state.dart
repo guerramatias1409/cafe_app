@@ -657,7 +657,7 @@ class AppState extends ChangeNotifier {
 
   void registrarVenta({
     required List<ItemCarrito> items,
-    required MedioPago medioPago,
+    required List<Pago> pagos,
     int propina = 0,
     MedioPago? propinaMedioPago,
     String? mesaNombre,
@@ -667,10 +667,10 @@ class AppState extends ChangeNotifier {
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       items: items,
       precioTotal: total,
-      pagos: [Pago(medioPago: medioPago, monto: total)],
+      pagos: pagos,
       timestamp: DateTime.now(),
       propina: propina,
-      propinaMedioPago: propina > 0 ? (propinaMedioPago ?? medioPago) : null,
+      propinaMedioPago: propina > 0 ? (propinaMedioPago ?? pagos.first.medioPago) : null,
       mesaNombre: mesaNombre,
     );
     ventas.add(venta);
