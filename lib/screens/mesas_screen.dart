@@ -786,6 +786,7 @@ class CuentaMesaScreen extends StatefulWidget {
 
 class _CuentaMesaScreenState extends State<CuentaMesaScreen> {
   bool _mostrandoSelector = false;
+  double? _selectorHeight; // null = usa 2/3 de pantalla por defecto
   final _moneda = NumberFormat.currency(locale: 'es_AR', symbol: '\$', decimalDigits: 0);
 
   @override
@@ -899,47 +900,81 @@ class _CuentaMesaScreenState extends State<CuentaMesaScreen> {
                   ),
           ),
 
-          // ── Selector de productos (expandible) ────────────────────────────
+          // ── Selector de productos (deslizable) ───────────────────────────
           if (_mostrandoSelector)
-            Container(
-              height: MediaQuery.of(context).size.height * 3 / 5,
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: AppTheme.grey300)),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    color: AppTheme.cream,
-                    child: Row(
-                      children: [
-                        const Text('Agregar productos',
-                            style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.brownDark)),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20),
-                          onPressed: () => setState(() => _mostrandoSelector = false),
+            Builder(builder: (ctx) {
+              final screenH = MediaQuery.of(ctx).size.height;
+              final h = (_selectorHeight ?? screenH * 3 / 5)
+                  .clamp(120.0, screenH * 0.85);
+              return SizedBox(
+                height: h,
+                child: Column(
+                  children: [
+                    // Handle de resize
+                    GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onVerticalDragUpdate: (d) => setState(() {
+                        _selectorHeight =
+                            ((_selectorHeight ?? screenH * 3 / 5) - d.delta.dy)
+                                .clamp(120.0, screenH * 0.85);
+                      }),
+                      child: Container(
+                        width: double.infinity,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.cream,
+                          border: Border(top: BorderSide(color: AppTheme.grey300)),
                         ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SelectorPanel(
-                        state: state,
-                        enCarrito: cuenta.items,
-                        mostrarBoton: false,
-                        onAgregar: (item) async {
-                          await state.agregarItemACuenta(widget.mesa.id, item);
-                        },
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppTheme.grey600.withOpacity(0.4),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      color: AppTheme.cream,
+                      child: Row(
+                        children: [
+                          const Text('Agregar productos',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.brownDark)),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () => setState(() {
+                              _mostrandoSelector = false;
+                              _selectorHeight = null;
+                            }),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Contenido
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: SelectorPanel(
+                          state: state,
+                          enCarrito: cuenta.items,
+                          mostrarBoton: false,
+                          onAgregar: (item) async {
+                            await state.agregarItemACuenta(widget.mesa.id, item);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
 
           // ── Barra de acciones ─────────────────────────────────────────────
           _BarraAcciones(
